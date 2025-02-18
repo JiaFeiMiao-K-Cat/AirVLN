@@ -1,6 +1,3 @@
-
-conda activate AirVLN
-
 cd ./AirVLN
 echo $PWD
 
@@ -18,7 +15,7 @@ python -u ./src/vlnce_src/train.py \
 
 
 
-nohup python -u ./airsim_plugin/AirVLNSimulatorServerTool.py --gpus 0,1,2,3,4,5,6,7 &
+nohup python -u ./airsim_plugin/AirVLNSimulatorServerTool.py --gpus 0,1,2,3 &
 
 python -u ./src/vlnce_src/dagger_train.py \
 --run_type train \

@@ -30,3 +30,9 @@ nohup.out
 
 temp/*
 *.log
+
+src/common/chat_log*.txt
+
+src/common/chat_vlm_log*.txt
+
+utils/pretrained/*

@@ -52,8 +52,11 @@ class Param:
 
         self.parser.add_argument('--EVAL_CKPT_PATH_DIR', type=str)
         self.parser.add_argument('--EVAL_DATASET', type=str, default="val_unseen")
+        self.parser.add_argument('--EVAL_LLM', type=str)
         self.parser.add_argument("--EVAL_NUM", type=int, default=-1)
         self.parser.add_argument('--EVAL_GENERATE_VIDEO', action="store_true")
+        self.parser.add_argument('--SAVE_IMAGE_LOG', action="store_true")
+
 
         self.parser.add_argument('--rgb_encoder_use_place365', action="store_true")
         self.parser.add_argument('--tokenizer_use_bert', action="store_true")

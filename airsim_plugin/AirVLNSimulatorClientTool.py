@@ -116,13 +116,15 @@ class AirVLNSimulatorClientTool:
 
             if result[0] == False:
                 logger.error(f'打开场景失败，机器: {socket_client.address._host}:{socket_client.address._port}')
-                raise Exception('打开场景失败')
-            assert len(result[1]) == 2, '打开场景失败'
+                raise Exception('result[0] 打开场景失败')
+            assert len(result[1]) == 2, 'len(result[1]) 打开场景失败'
 
             ip = result[1][0]
+            if isinstance(ip, bytes):
+                ip = ip.decode('utf-8')
             ports = result[1][1]
-            assert str(ip) == str(socket_client.address._host), '打开场景失败'
-            assert len(ports) == len(self.machines_info[index]['open_scenes']), '打开场景失败'
+            assert str(ip) == str(socket_client.address._host), f'str(ip) 打开场景失败 {str(ip)} {str(socket_client.address._host)}'
+            assert len(ports) == len(self.machines_info[index]['open_scenes']), 'len(ports) 打开场景失败'
             for i, port in enumerate(ports):
                 if self.machines_info[index]['open_scenes'][i] is None:
                     self.airsim_clients[index][i] = None
@@ -157,7 +159,7 @@ class AirVLNSimulatorClientTool:
         self._confirmConnection()
         self._closeSocketConnection()
 
-    def getImageResponses(self, get_rgb=True, get_depth=True):
+    def getImageResponses(self, get_rgb=True, get_depth=True, get_seg=False):
 
         def _getImages(airsim_client: airsim.VehicleClient, scen_id, get_rgb, get_depth):
             if airsim_client is None:

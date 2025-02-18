@@ -1180,6 +1180,7 @@ def _eval_checkpoint(
                     deterministic=True,
                     step=t,
                 )
+                print(f'prev_actions: {prev_actions}')
                 prev_actions.copy_(actions)
 
                 # Make action and get the new state
