@@ -370,7 +370,7 @@ def _eval_checkpoint(
 
     if use_agent: 
         # trainer = Agent(detector=detector, parser=GPT4O_MINI, planner=args.EVAL_LLM, history=GPT4O_MINI, vlm_model=LLAMA3V)
-        trainer = Agent(detector=detector, parser=QWEN, planner=args.EVAL_LLM, history=QWEN, vlm_model=LLAMA3V)
+        trainer = Agent(detector=detector, parser=args.EVAL_LLM, planner=args.EVAL_LLM, history=args.EVAL_LLM, vlm_model=LLAMA3V)
     else:
         trainer = LLMEvaluator(
             llm=args.EVAL_LLM,

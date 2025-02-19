@@ -209,21 +209,29 @@ class ObjectInfo:
         self.y = float(y)
         self.w = float(w)
         self.h = float(h)
+    
+    def is_left(self):
+        return self.x < 0.4
+    def is_right(self):
+        return self.x > 0.6
+    def is_center(self):
+        return 0.4 <= self.x <= 0.6
 
     def __str__(self) -> str:
-        if self.x < 0.4:
-            location_x = 'left'
-        elif self.x > 0.6:
-            location_x = 'right'
-        else:
-            location_x = 'center'
-        if self.y < 0.4:
-            location_y = 'top'
-        elif self.y > 0.6:
-            location_y = 'bottom'
-        else:
-            location_y = 'center'
-        return f"{self.name} {location_x}-{location_y} x:{self.x:.2f} y:{self.y:.2f} width:{self.w:.2f} height:{self.h:.2f}"
+        # if self.x < 0.4:
+        #     location_x = 'left'
+        # elif self.x > 0.6:
+        #     location_x = 'right'
+        # else:
+        #     location_x = 'center'
+        # if self.y < 0.4:
+        #     location_y = 'top'
+        # elif self.y > 0.6:
+        #     location_y = 'bottom'
+        # else:
+        #     location_y = 'center'
+        # return f"{self.name} {location_x}-{location_y} x:{self.x:.2f} y:{self.y:.2f} width:{self.w:.2f} height:{self.h:.2f}"
+        return f"{self.name} x:{self.x:.2f} y:{self.y:.2f} width:{self.w:.2f} height:{self.h:.2f}"
 
 class ObjectTracker:
     def __init__(self, name, x, y, w, h) -> None:
@@ -372,9 +380,24 @@ class VisionSkillWrapper():
 
     def get_obj_list(self) -> str:
         self.update()
+        left = []
+        center = []
+        right = []
         str_list = []
         for obj in self.object_list:
-            str_list.append(str(obj))
+            # str_list.append(str(obj))
+            if obj.is_left():
+                left.append(str(obj))
+            elif obj.is_right():
+                right.append(str(obj))
+            else:
+                center.append(str(obj))
+        if len(center) > 0:
+            str_list.append('Center: [' + ', '.join(center) + ']')
+        if len(left) > 0:
+            str_list.append('Left: [' + ', '.join(left) + ']')
+        if len(right) > 0:
+            str_list.append('Right: [' + ', '.join(right) + ']')
         return str(str_list).replace("'", '')
 
     def get_obj_info(self, object_name: str) -> ObjectInfo:

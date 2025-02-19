@@ -399,22 +399,60 @@ Valid Output:"""
         return thoughs, probabilities, action, finished
     
     def extract_landmarks(self, navigation_instructions: str, log_dir=None):
-        prompt = f"""You are a drone operator. Based on the following navigation instructions, extract the key landmarks you may need and provide them in a JSON string array format.
+        prompt = """[[Task Instruction]]
+You are a navigation instruction parser. Follow these steps precisely:
 
-Please follow these steps:
-1. Carefully analyze the navigation instructions to identify key landmarks mentioned.
-2. Merge any similar landmarks into a single entry (for example, merge "building" and "the second building" into "building").
-3. List each key landmark as a string in the JSON array format, ensuring that the landmarks are enclosed in double quotes.
+1. SENTENCE SEGMENTATION 
+- Split input text into individual sentences using periods as separators
+- Preserve original wording including leading conjunctions (e.g., "and...")
+- Maintain original capitalization and spacing
 
-Output Example:
-```json
-["roof", "building", "road"]
-```
+2. LANDMARK EXTRACTION
+- Identify ALL navigational landmarks (physical objects/locations)
+- Capture full noun phrases following prepositions: to/at/near/above/before
+- Retain modifiers: "small building", "shop entrance", etc.
 
-Navigation Instructions:
-{navigation_instructions}"""
+3. JSON STRUCTURING
+- Create array of objects with STRICT format:
+{{
+  "sub-instruction_[N]": "<original_sentence>",  // N starts at 1
+  "landmark": ["<noun_phrase1>", "<noun_phrase2>"] 
+}}
+- Always use arrays even for single landmarks
+- No explanatory text - ONLY valid JSON
+
+[[Critical Requirements]]
+✓ Double-check period placement for correct segmentation
+✓ Include ALL landmarks per sentence (1-3 typical)
+✓ Never omit/modify original wording in sub-instructions
+✓ Strictly avoid JSON syntax errors
+
+[[Demonstration]]
+Input:
+{{ descend toward blue warehouse then circle around its parking lot. avoid the tall crane during approach. }}
+
+Output:
+[
+  {{
+    "sub-instruction_1": "descend toward blue warehouse then circle around its parking lot.",
+    "landmark": ["blue warehouse", "parking lot"]
+  }},
+  {{
+    "sub-instruction_2": "avoid the tall crane during approach.",
+    "landmark": ["crane"]
+  }}
+]
+
+[[Your Target]]
+Process this navigation instruction:
+Input: {{ {navigation_instruction} }}
+Output:"""
+        prompt = prompt.format(navigation_instruction=navigation_instructions)
         response = self.llm.request(prompt, model_name=self.model_name)
-        landmarks = re.findall(r"```json(?:\w+)?\n(.*?)```", response, re.DOTALL | re.IGNORECASE)
+        if self.model_name == DEEPSEEKR1_32B:
+            landmarks = [re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL)]
+        else:
+            landmarks = re.findall(r"```json(?:\w+)?\n(.*?)```", response, re.DOTALL | re.IGNORECASE)
 
         if log_dir is not None:
             with open(os.path.join(log_dir, 'extract_landmarks.txt'), 'w+') as f:
@@ -550,7 +588,8 @@ Navigation Instructions:
             rgb = rgbs[i]
             index = self.instruction_indexes[i]
             instruction = [None] + instruction.split('. ') + [None]
-            scene = get_scene(instruction=instruction[index], rgb=rgb, landmark=self.landmarks[i], log_dir=log_dir)
+            print(f'{self.landmarks[i]}, {self.landmarks[i][index - 1]}')
+            scene = get_scene(instruction=instruction[index], rgb=rgb, landmark=self.landmarks[i][index - 1]['landmark'], log_dir=log_dir)
             if self.planner.model_name == DEEPSEEKR1_32B:
                 response = self.planner.plan(navigation_instructions=instruction, scene_description=scene, index = index, log_dir=log_dir)
                 thoughs, probabilities, action, finished = self.parser.parse_response(response, log_dir=log_dir)
