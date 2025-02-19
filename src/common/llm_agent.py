@@ -525,8 +525,6 @@ Navigation Instructions:
                     f.write("\n---\n")
                     f.write(prompt)
                     f.write("\n---\n")
-                    f.write(observation_raw)
-                    f.write("\n---\n")
                     f.write(str(observation))
             return scene
         # if self.detector == 'yolo':

@@ -362,8 +362,8 @@ def _eval_checkpoint(
         print("skipping -- evaluation exists.")
         return
     
-    detector = 'vlm'
-    # detector = 'dino'
+    # detector = 'vlm'
+    detector = 'dino'
     # detector = 'yolo'
     use_agent = True
 

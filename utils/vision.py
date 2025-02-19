@@ -211,7 +211,19 @@ class ObjectInfo:
         self.h = float(h)
 
     def __str__(self) -> str:
-        return f"{self.name} x:{self.x:.2f} y:{self.y:.2f} width:{self.w:.2f} height:{self.h:.2f}"
+        if self.x < 0.4:
+            location_x = 'left'
+        elif self.x > 0.6:
+            location_x = 'right'
+        else:
+            location_x = 'center'
+        if self.y < 0.4:
+            location_y = 'top'
+        elif self.y > 0.6:
+            location_y = 'bottom'
+        else:
+            location_y = 'center'
+        return f"{self.name} {location_x}-{location_y} x:{self.x:.2f} y:{self.y:.2f} width:{self.w:.2f} height:{self.h:.2f}"
 
 class ObjectTracker:
     def __init__(self, name, x, y, w, h) -> None:
@@ -446,7 +458,7 @@ class VisionClient():
             self.yolo_client.detect_local(frame)
             # asyncio.run(self.yolo_client.detect(frame))
         elif self.detector == 'dino': 
-            self.dino_client.detect(frame, prompt)
+            self.dino_client.detect(frame, prompt, save_path=save_path)
         else:
             return self.vlm_client.request(prompt, model_name=self.vlm_model, image=frame.image, save_path=save_path)
     
@@ -482,13 +494,13 @@ class GroundingDINOClient():
             box_threshold=self.BOX_TRESHOLD,
             text_threshold=self.TEXT_TRESHOLD
         )
-        boxes = box_convert(boxes=boxes, in_fmt="cxcywh", out_fmt="xyxy").numpy()
-        logits = logits.numpy()
-        # print(boxes)
         if save_path is not None:
             annotated_frame = annotate(image_source=image_source, boxes=boxes, logits=logits, phrases=phrases)
             cv2.imwrite(save_path, annotated_frame)
         
+        # print(boxes)
+        boxes = box_convert(boxes=boxes, in_fmt="cxcywh", out_fmt="xyxy").numpy()
+        logits = logits.numpy()
         if self.shared_frame is not None:
             # {'image_id': 0, 'result': [{'name': 'train_1', 'confidence': 0.31, 'box': {'x1': 0.42, 'y1': 0.42, 'x2': 1.0, 'y2': 0.78}}]}
             result = {}
