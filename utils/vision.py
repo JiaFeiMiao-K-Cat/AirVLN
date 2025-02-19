@@ -469,7 +469,7 @@ class GroundingDINOClient():
         self.model = load_model(model_config, pretrained_path)
         self.BOX_TRESHOLD = 0.35
         self.TEXT_TRESHOLD = 0.25
-    def detect(self, frame: Frame, text_prompt: str):
+    def detect(self, frame: Frame, text_prompt: str, save_path = None):
         image = frame.image
         image.save('image.jpg', 'JPEG')
         image_source, image = load_image('image.jpg')
@@ -485,8 +485,9 @@ class GroundingDINOClient():
         boxes = box_convert(boxes=boxes, in_fmt="cxcywh", out_fmt="xyxy").numpy()
         logits = logits.numpy()
         # print(boxes)
-        # annotated_frame = annotate(image_source=image_source, boxes=boxes, logits=logits, phrases=phrases)
-        # cv2.imwrite("annotated_image.jpg", annotated_frame)
+        if save_path is not None:
+            annotated_frame = annotate(image_source=image_source, boxes=boxes, logits=logits, phrases=phrases)
+            cv2.imwrite(save_path, annotated_frame)
         
         if self.shared_frame is not None:
             # {'image_id': 0, 'result': [{'name': 'train_1', 'confidence': 0.31, 'box': {'x1': 0.42, 'y1': 0.42, 'x2': 1.0, 'y2': 0.78}}]}

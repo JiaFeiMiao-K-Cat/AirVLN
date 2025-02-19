@@ -241,7 +241,7 @@ class LLMPlanner():
 # 'History':{history}
 
 # 'Plan':{plan}"""
-        self.prompt = """[Task Description]
+        self.prompt = """[General Task Description]
 You are an embodied drone that navigates in the real world. You need to explore between some places marked and ultimately find the destination to stop. To finish the task, you need to follow the navigation instructions.
 For each step, assign a probability distribution over the valid action list (0-7). The action with the highest probability will be executed.
 
@@ -468,15 +468,17 @@ class Agent():
                 self.vision.detect_capture(frame=rgb)
                 observation = self.vision.get_obj_list()
             elif self.detector == 'dino':
-                self.vision.detect_capture(frame=rgb, prompt=" . ".join(landmark))
+                prompt=" . ".join(landmark)
+                self.vision.detect_capture(frame=rgb, prompt=prompt, save_path=os.path.join(log_dir, 'annotated.jpg'))
                 observation = self.vision.get_obj_list()
             elif self.detector == 'vlm':
                 prompt = """You are a drone operator. Given the first-person view image of the scene and Navigation Instructions, identify the VISIBLE landmarks in the image. For each visible landmark, create a description with the following attributes: 
 - **location**: the position of the landmark in the image
+- **distance**: the distance of the landmark from the drone
 - **size**: the relative size of the landmark
 - **details**: any notable details about the landmark
 
-For multiple instances of the same type of landmark, number them sequentially. Output the results in a JSON dictionary where the key is the landmark name, and the value is another dictionary containing the location, size, and details.
+For multiple instances of the same type of landmark, number them sequentially. Output the results in a JSON dictionary where the key is the landmark name, and the value is another dictionary containing the location, distace, size, and details.
 
 
 Output Format: Provide them in JSON dictionary.
@@ -485,11 +487,13 @@ Output Example:
 {{
     "Landmark1": {{
         "location": "the left top corner of the image",
+        "distance": "far",
         "size": "medium",
         "details": "..."
     }},
     "Landmark2": {{
         "location": "the center of the image",
+        "distance": "near",
         "size": "large",
         "details": "..."
     }}
@@ -509,6 +513,15 @@ Navigation Instructions:
             if log_dir is not None and self.detector == 'vlm':
                 with open(os.path.join(log_dir, 'scene.txt'), 'w+') as f:
                     f.write(self.vlm_model)
+                    f.write("\n---\n")
+                    f.write(prompt)
+                    f.write("\n---\n")
+                    f.write(observation_raw)
+                    f.write("\n---\n")
+                    f.write(str(observation))
+            if log_dir is not None and self.detector == 'dino':
+                with open(os.path.join(log_dir, 'dino.txt'), 'w+') as f:
+                    f.write("dino")
                     f.write("\n---\n")
                     f.write(prompt)
                     f.write("\n---\n")
