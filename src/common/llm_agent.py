@@ -449,11 +449,9 @@ Input: {{ {navigation_instruction} }}
 Output:"""
         prompt = prompt.format(navigation_instruction=navigation_instructions)
         response = self.llm.request(prompt, model_name=self.model_name)
-        if self.model_name == DEEPSEEKR1_32B:
+        landmarks = re.findall(r"```json(?:\w+)?\n(.*?)```", response, re.DOTALL | re.IGNORECASE)
+        if len(landmarks) == 0:
             landmarks = [re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL)]
-        else:
-            landmarks = re.findall(r"```json(?:\w+)?\n(.*?)```", response, re.DOTALL | re.IGNORECASE)
-
         if log_dir is not None:
             with open(os.path.join(log_dir, 'extract_landmarks.txt'), 'w+') as f:
                 f.write(self.model_name)
