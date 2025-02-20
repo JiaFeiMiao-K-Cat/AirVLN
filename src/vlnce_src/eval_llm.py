@@ -36,7 +36,7 @@ from Model.utils.common import append_text_to_image, images_to_video
 from src.common.param import args
 from src.vlnce_src.env import AirVLNLLMENV
 from src.common.llm_wrapper import LLMWrapper, GPT3, GPT4, GPT4O, GPT4O_MINI, LLAMA3, RWKV, QWEN, INTERN, GEMMA2, DEEPSEEKR1_32B, DEEPSEEKR1_8B
-from src.common.vlm_wrapper import MINICPM, LLAMA3V, GPT4O_V
+from src.common.vlm_wrapper import MINICPM, LLAMA3V, GPT4O_V, INTERN_VL
 from src.common.llm_agent import Agent
 
 def generate_video(
@@ -362,8 +362,8 @@ def _eval_checkpoint(
         print("skipping -- evaluation exists.")
         return
     
-    # detector = 'vlm'
-    detector = 'dino'
+    detector = 'vlm'
+    # detector = 'dino'
     # detector = 'yolo'
     use_agent = True
 

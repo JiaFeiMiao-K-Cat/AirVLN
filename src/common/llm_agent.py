@@ -464,10 +464,11 @@ Output:"""
         return json.loads(landmarks[-1])
 
 class Agent():
-    def __init__(self, detector, parser, planner, history, vlm_model=LLAMA3V):
+    def __init__(self, detector, parser, planner, history, vlm_model=LLAMA3V, manual_mode: bool = False):
         self.history_manager = HistoryManager(history)
         self.detector = detector
         self.vlm_model = vlm_model
+        self.manual_mode = manual_mode
         self.vision = VisionClient(detector, vlm_model=vlm_model)
         self.parser = LLMParser(parser, detector)
         self.planner = LLMPlanner(planner, self.history_manager)
@@ -508,43 +509,113 @@ class Agent():
                 self.vision.detect_capture(frame=rgb, prompt=prompt, save_path=os.path.join(log_dir, 'annotated.jpg'))
                 observation = self.vision.get_obj_list()
             elif self.detector == 'vlm':
-                prompt = """You are a drone operator. Given the first-person view image of the scene and Navigation Instructions, identify the VISIBLE landmarks in the image. For each visible landmark, create a description with the following attributes: 
-- **location**: the position of the landmark in the image
-- **distance**: the distance of the landmark from the drone
-- **size**: the relative size of the landmark
-- **details**: any notable details about the landmark
+                prompt = """[ROLE]  
+You are an advanced multimodal perception system for a drone executing Vision-Language Navigation (VLN). Your task is to analyze first-person view RGB-D imagery and generate mission-aware environmental semantics for the given [Instruction].
 
-For multiple instances of the same type of landmark, number them sequentially. Output the results in a JSON dictionary where the key is the landmark name, and the value is another dictionary containing the location, distace, size, and details.
+[Processing Requirements:]  
+1. Hierarchical Semantic Parsing
+	 Detect RELEVANT objects at two levels:
+	 a) Primary categories: building, vegetation, vehicle, road, sky
+   b) Functional components: e.g. if building detected: ['entrance', 'window', 'balcony', 'roof_antenna']  
 
+2. Spatial Configuration:  
+   Bounding box: [x_min, y_min, x_max, y_max] normalized to [0,1]
+   Relative position (self-center): left/right/center
+   Depth: Metric estimate with confidence interval (22.5m ± 3.2m)
+   3D size: {{"width": _, "height": _, "depth": _}} from monocular depth  
 
-Output Format: Provide them in JSON dictionary.
-Output Example:
+3. Navigation-Relevant Taggin
+   Relavant_to_instruction: confidence score from 0 to 1
+
+### Example ###
+[Instruction]: Proceed to the building with a glass entrance
+[OUTPUT FORMAT]
 ```json
-{{
-    "Landmark1": {{
-        "location": "the left top corner of the image",
-        "distance": "far",
-        "size": "medium",
-        "details": "..."
+[
+    {{
+        "object_id": "building_01",
+        "primary_category": "building",
+        "functional_components": [
+            "entrance",
+            "window",
+            "glass_facade"
+        ],
+        "spatial_config": {{
+            "bbox": [
+                0.32,
+                0.15,
+                0.68,
+                0.83
+            ],
+            "position": "center",
+            "depth_estimate": "28.4m ± 2.1",
+            "3d_size": {{
+                "width": 15.2,
+                "height": 32.7,
+                "depth": 12.8
+            }}
+        }},
+        "navigation_tags": {{
+            "relevant_to_instruction": 0.92
+        }}
     }},
-    "Landmark2": {{
-        "location": "the center of the image",
-        "distance": "near",
-        "size": "large",
-        "details": "..."
+    {{
+        "object_id": "vehicle_03",
+        "primary_category": "vehicle",
+        "spatial_config": {{
+            "bbox": [
+                0.12,
+                0.65,
+                0.23,
+                0.72
+            ],
+            "position": "left",
+            "depth_estimate": "8.7m ± 1.4",
+            "3d_size": {{
+                "width": 2.3,
+                "height": 1.8,
+                "depth": 4.1
+            }}
+        }},
+        "navigation_tags": {{
+            "relevant_to_instruction": 0.86
+        }}
+    }},
+    {{
+        "object_id": "vegetation_12",
+        "primary_category": "vegetation",
+        "spatial_config": {{
+            "bbox": [
+                0.78,
+                0.45,
+                0.89,
+                0.55
+            ],
+            "position": "right",
+            "depth_estimate": "14.2m ± 2.8",
+            "3d_size": {{
+                "width": 5.7,
+                "height": 8.2,
+                "depth": 5.1
+            }}
+        }},
+        "navigation_tags": {{
+            "relevant_to_instruction": 0.23
+        }}
     }}
-}}
+]
 ```
 
-Navigation Instructions: 
-{navigation_instructions}"""
+### Input ###
+[Instruction]: {navigation_instructions}
+"""
                 prompt = prompt.format(navigation_instructions=instruction, landmarks=landmark)
                 observation_raw = self.vision.detect_capture(frame=rgb, prompt=prompt, save_path=img_path)
                 observations = re.findall(r"```json(?:\w+)?\n(.*?)```", observation_raw, re.DOTALL | re.IGNORECASE)
                 if len(observations) == 0:
                     observation = observation_raw
                 else: 
-                    observation = json.loads(observations[-1])
+                    observation = observations[-1]
             scene = self.parser.parse_observation(observation, instructions=instruction, landmarks=landmark, log_dir=log_dir)
             if log_dir is not None and self.detector == 'vlm':
                 with open(os.path.join(log_dir, 'scene.txt'), 'w+') as f:
@@ -585,14 +656,18 @@ Navigation Instructions:
             instruction = instructions[i]
             rgb = rgbs[i]
             index = self.instruction_indexes[i]
-            instruction = [None] + instruction.split('. ') + [None]
-            print(f'{self.landmarks[i]}, {self.landmarks[i][index - 1]}')
+            # instruction = [None] + instruction.split('. ') + [None]
+            instruction = [None] + self.landmarks[i] + [None]
             scene = get_scene(instruction=instruction[index], rgb=rgb, landmark=self.landmarks[i][index - 1]['landmark'], log_dir=log_dir)
-            if self.planner.model_name == DEEPSEEKR1_32B:
-                response = self.planner.plan(navigation_instructions=instruction, scene_description=scene, index = index, log_dir=log_dir)
-                thoughs, probabilities, action, finished = self.parser.parse_response(response, log_dir=log_dir)
-            else:
-                thoughs, probabilities, action, finished = self.planner.plan_split(navigation_instructions=instruction, scene_description=scene, index = index, log_dir=log_dir)
+            if self.manual_mode:
+                action, finished = map(int, input('Enter action and finished: ').split())
+                finished = finished == 1
+            else: 
+                if self.planner.model_name == DEEPSEEKR1_32B:
+                    response = self.planner.plan(navigation_instructions=instruction, scene_description=scene, index = index, log_dir=log_dir)
+                    thoughs, probabilities, action, finished = self.parser.parse_response(response, log_dir=log_dir)
+                else:
+                    thoughs, probabilities, action, finished = self.planner.plan_split(navigation_instructions=instruction, scene_description=scene, index = index, log_dir=log_dir)
             if finished:
                 self.instruction_indexes[i] = index + 1
                 print(f'Instruction {index} finished')

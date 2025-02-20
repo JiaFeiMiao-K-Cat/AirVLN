@@ -7,6 +7,7 @@ import re
 LLAMA3V = "llama3.2-vision:11b-instruct-q8_0"
 MINICPM = "minicpm-v:8b-2.6-fp16"
 GPT4O_V = "gpt-4o"
+INTERN_VL = "OpenGVLab/InternVL2_5-8B"
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 chat_log_path = os.path.join(CURRENT_DIR, "chat_vlm_log.txt")
@@ -45,8 +46,8 @@ class VLMWrapper:
             base_url='https://api.openai-proxy.org/v1',
             api_key="sk-rOUL6p7X1FwtJeis8LaRA10TaoyGIyd2zxOOon8Yb6MV7XWz",
         )
-        self.rwkv_client = openai.OpenAI(
-            base_url='http://localhost:8000',
+        self.lmdeploy_client = openai.OpenAI(
+            base_url='http://localhost:23333/v1',
             api_key="token-abc123",
         )
 
@@ -56,7 +57,7 @@ class VLMWrapper:
         elif model_name == LLAMA3V or model_name == MINICPM:
             client = self.ollama_client
         else:
-            client = self.rwkv_client
+            client = self.lmdeploy_client
         
         # print(f"Requesting from {model_name}... use\n{prompt}")
 
