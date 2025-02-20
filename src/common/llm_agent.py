@@ -662,6 +662,19 @@ You are an advanced multimodal perception system for a drone executing Vision-La
             if self.manual_mode:
                 action, finished = map(int, input('Enter action and finished: ').split())
                 finished = finished == 1
+                if finished:
+                    self.instruction_indexes[i] = index + 1
+                    print(f'Instruction {index} finished')
+                with open(os.path.join(log_dir, 'action.txt'), 'w+') as f:
+                    f.write("human")
+                    f.write("\n---\n")
+                    selectd_action = actions_description.split('\n')[action]
+                    f.write(f"{selectd_action}")
+                    if finished:
+                        f.write("\n---\n")
+                        f.write(f"{instruction[index]} finished")
+                actions.append(action)
+                continue
             else: 
                 if self.planner.model_name == DEEPSEEKR1_32B:
                     response = self.planner.plan(navigation_instructions=instruction, scene_description=scene, index = index, log_dir=log_dir)

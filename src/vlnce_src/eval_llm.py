@@ -362,15 +362,15 @@ def _eval_checkpoint(
         print("skipping -- evaluation exists.")
         return
     
-    detector = 'vlm'
-    # detector = 'dino'
+    # detector = 'vlm'
+    detector = 'dino'
     # detector = 'yolo'
     use_agent = True
 
 
     if use_agent: 
         # trainer = Agent(detector=detector, parser=GPT4O_MINI, planner=args.EVAL_LLM, history=GPT4O_MINI, vlm_model=LLAMA3V)
-        trainer = Agent(detector=detector, parser=args.EVAL_LLM, planner=args.EVAL_LLM, history=args.EVAL_LLM, vlm_model=LLAMA3V)
+        trainer = Agent(detector=detector, parser=args.EVAL_LLM, planner=args.EVAL_LLM, history=args.EVAL_LLM, vlm_model=LLAMA3V, manual_mode=True)
     else:
         trainer = LLMEvaluator(
             llm=args.EVAL_LLM,
