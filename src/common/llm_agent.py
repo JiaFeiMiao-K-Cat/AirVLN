@@ -243,85 +243,202 @@ class LLMPlanner():
 # 'Plan':{plan}"""
         self.prompt = """[General Task Description]
 You are an embodied drone that navigates in the real world. You need to explore between some places marked and ultimately find the destination to stop. To finish the task, you need to follow the navigation instructions.
-For each step, assign a probability distribution over the valid action list (0-7). The action with the highest probability will be executed.
 
-[Hard Constraints]
-1. **Valid Actions** (0-7):
-    0: TASK_FINISH  
-    1: MOVE_FORWARD (5 meters)  
-    2: TURN_LEFT (15 degrees)  
-    3: TURN_RIGHT (15 degrees)  
-    4: GO_UP (2 meters)  
-    5: GO_DOWN (2 meters)  
-    6: MOVE_LEFT (5 meters)  
-    7: MOVE_RIGHT (5 meters)
+Now you are at a certain time step [step t],
 
-2. **Probability Rules**:
+the input for you includes:
+
+### INPUT
+
+current time step: step t
+
+[whole instruction list]
+
+[current instruction]
+
+[current scene]
+
+[history]: including [Executed actions] and [visual memory]
+
+######
+
+Now, based on the above INPUT, plan your next action at this time step. 
+
+******* IMPORTANT ********:
+
+**Valid Actions** (0-7):
+0: TASK_FINISH
+1: MOVE_FORWARD (5 meters)
+2: TURN_LEFT (15 degrees)
+3: TURN_RIGHT (15 degrees)
+4: GO_UP (2 meters)
+5: GO_DOWN (2 meters)
+6: MOVE_LEFT (5 meters)
+7: MOVE_RIGHT (5 meters)
+
+***********************
+
+Your output should include:
+
+### Output
+
+[thought]: tell us why you choose this action, e.g. you can analyze the association between the current scene and the current instruction, consider the whole instruction list and history, etc.
+
+[probabilities]: assign a probability distribution over the valid action list (0-7).
+
+[selected_action]: Explicitly select the action with highest probability.
+
+[instruction_finished]: a bool value, identify if the current instruction has been finished.
+
+#######
+
+Note!! The Format: Strictly output **JSON.**
+
+A valid output EXAMPLE:
+```json
+{{
+  "thought": "The current instruction is to 'Turn right and check for a red building.' In the current scene, there's a red structure visible to the right. Since the historical actions show I previously moved forward and turned left, executing a right turn now aligns with the instruction to verify the red building's presence. The visual memory confirms no prior red structures were detected until now.",
+  "probabilities": {{
+    "0": 0.0,
+    "1": 0.1,
+    "2": 0.0,
+    "3": 0.0,
+    "4": 0.8,
+    "5": 0.0,
+    "6": 0.0,
+    "7": 0.1
+  }},
+  "selected_action": 3,
+  "instruction_finished": false
+}}
+```
+#############
+
+[More Constraints]
+
+1. **Probability Rules**:
     - Output probabilities for **ALL 8 actions** (0-7)
-    - Sum of probabilities must equal 1.0
     - Higher probability = stronger preference
-    - Only if the Current Instruction is finished and the Next Instruction is None, can choose the TASK_FINISH action
-
-3. **Instruction Finish Rule**:
+    - Only if the Current Instruction is finished and it is the last instruction, can choose the TASK_FINISH action
+2. **Instruction Finish Rule**:
     - If the Current Instruction is finished, set "instruction_finished" to true
-
-4. **Important Note**:
+3. **Important Note**:
     - When the instruction says **"turn right"** (or **"turn left"**) without a specified degree, it means a large turn, usually 90 degrees(about 6 times).
     - When the instruction says **"turn around"** without a specified degree, it means a large turn, usually 180 degrees(about 12 times).
     - When the valid action in the list says **"TURN_RIGHT"** (or **"TURN_LEFT"**), it refers to a small 15-degree turn. Be sure to distinguish between these cases.
 
-[Output Format]
-Strictly output **JSON**:
+############
+
+EXAMPLE:
+
+### INPUT
+
+{{
+  "current_time_step": "step 7",
+  "whole_instruction_list": [
+    {{
+    "sub-instruction_1": "turn right and go down the road.",
+    "landmark": ["road"]
+    }},
+    {{
+    "sub-instruction_2": "turn left after the park and visit the park benches along the side.",
+    "landmark": ["park", "park benches"]
+    }},
+    {{
+    "sub-instruction_3": "stop by the trees near the benches on the other side of the park.",
+    "landmark": ["trees", "benches", "park"]
+    }}
+  ],
+  "current_instruction": "turn right and go down the road.",
+  "current_scene": [
+    {{
+        "object_id": "building_01",
+        "primary_category": "building",
+        "functional_components": ["entrance"],
+        "spatial_config": {{
+        "bbox": [0.32, 0.15, 0.68, 0.83],
+        "position": "center",
+        "depth_estimate": "28.4m ± 2.1",
+        "3d_size": {{
+            "width": 15.2,
+            "height": 32.7,
+            "depth": 12.8
+        }}
+        }},
+        "navigation_tags": {{
+        "relevant_to_instruction": 0.92
+        }}
+    }},
+    {{
+        "object_id": "road_01",
+        "primary_category": "road",
+        "spatial_config": {{
+        "bbox": [0.12, 0.65, 0.23, 0.72],
+        "position": "left",
+        "depth_estimate": "8.7m ± 1.4",
+        "3d_size": {{
+            "width": 2.3,
+            "height": 1.8,
+            "depth": 4.1
+        }}
+        }},
+        "navigation_tags": {{
+            "relevant_to_instruction": 0.86
+        }}
+    }}
+  ],
+  "history": {{
+    "executed_actions": [
+      "4: GO_UP (2 meters)",
+      "3: TURN_RIGHT (15 degrees)",
+      "3: TURN_RIGHT (15 degrees)",
+      "3: TURN_RIGHT (15 degrees)",
+      "3: TURN_RIGHT (15 degrees)",
+      "3: TURN_RIGHT (15 degrees)",
+      "3: TURN_RIGHT (15 degrees)"
+    ],
+    "visual_memory": [
+      {{
+        "object": "road",
+        "status": "closing",
+        "visible": true,
+        "location": "center"
+      }},{{
+        "object": "building",
+        "status": "closing",
+        "visible": true,
+        "location": "right"
+      }}
+    ]
+  }}
+}}
+
+### OUTPUT
+
 ```json
 {{
-  "thought": "Analyze the association between the current scene and the current instruction, and consider the next instruction to plan the next action.",
-  "probabilities": {{"0": 0.0, "1": 0.3, "2": 0.1, "3": 0.0, "4": 0.0, "5": 0.0, "6": 0.6, "7": 0.0}},
-  "selected_action": 6,
+  "thought": "The current instruction is to 'turn right and go down the road.' In the current scene, there's a road visible to the left. Since the historical actions show I previously ascended and turned right. The visual memory confirms there was a road at center before, and the road in my left now. I have turned right too much, I should turn left and move forward along the road. ",
+  "probabilities": {{
+    "0": 0.0,
+    "1": 0.1,
+    "2": 0.8,
+    "3": 0.0,
+    "4": 0.0,
+    "5": 0.0,
+    "6": 0.0,
+    "7": 0.1
+  }},
+  "selected_action": 2,
   "instruction_finished": false
 }}
 ```
 
-[Examples]
----
-Example 1:
-Previous Instruction: None
-Current Instruction: "take off and turn to your right until you face the shore"
-Next Instruction: "move forward until you see a building"
-Current scene: Now I am near a building but I can't see the shore.
-History: I have already taken off and turned to the right of 15 degree.
-Valid Output:
-```json
-{{
-  "thought": "I have already taken off and turned to the right, but I can't see the shore. I should turn right again based on the current instruction, and move forward once I can see the shore based on the next instruction.",
-  "probabilities": {{"0": 0.0, "1": 0.1, "2": 0.1, "3": 0.3, "4": 0.2, "5": 0.1, "6": 0.1, "7": 0.1}},
-  "selected_action": 3,
-  "instruction_finished": false
-}}
-```
+############
 
-Example 2:
-Previous Instruction: "take off and turn to your right until you face the shore"
-Current Instruction: "move forward until you see a building"
-Next Instruction: "turn right until you can see a green roof building"
-Current scene: I am near a building and I can see the shore.
-History: I have already moved forward 20 meters.
-Valid Output:
-```json
-{{
-  "thought": "I can see the building now, so the Current Instruction is finished, I should follow the Next Instruction to turn right to find the green roof building.",
-  "probabilities": {{"0": 0.0, "1": 0.1, "2": 0.0, "3": 0.7, "4": 0.0, "5": 0.0, "6": 0.0, "7": 0.1}},
-  "selected_action": 3,
-  "instruction_finished": true
-}}
-```
+### INPUT
 
-[Input]
-Previous Instruction: {previous_instruction}
-Current Instruction: {current_instruction}
-Next Instruction: {next_instruction}
-Current scene: {scene_description}
-History: {history}
-Valid Output:"""
+{input}
+"""
 
     # def plan(self, navigation_instructions, scene_description, log_dir=None):
     #     history, plan = self.history_manager.get()
@@ -337,9 +454,16 @@ Valid Output:"""
     #             f.write("\n---\n")
     #             f.write(response)
     #     return response
-    def plan(self, navigation_instructions, scene_description, log_dir=None):
+    def plan(self, navigation_instructions, scene_description, current_instruction, log_dir=None, step=0):
         history, plan = self.history_manager.get()
-        prompt = self.prompt.format(actions_description=actions_description, scene_description=scene_description, navigation_instructions=navigation_instructions, history=history)
+        input = {}
+        input['current_time_step'] = f'step {step}'
+        input['whole_instruction_list'] = navigation_instructions
+        input['current_instruction'] = current_instruction
+        input['current_scene'] = scene_description
+        input['history'] = history
+        # prompt = self.prompt.format(actions_description=actions_description, scene_description=scene_description, navigation_instructions=navigation_instructions, history=history)
+        prompt = self.prompt.format(input=json.dumps(input))
         # system_prompt = self.system_prompt.format(actions_description=actions_description)
         responses_raw = self.llm.request(prompt, model_name=self.model_name)
         return responses_raw
@@ -365,13 +489,21 @@ Valid Output:"""
                 f.write(str(action))
         return thoughs, probabilities, action
     
-    def plan_split(self, navigation_instructions, scene_description, index, log_dir=None, replan:bool=False):
+    def plan_split(self, navigation_instructions, scene_description, current_instruction, log_dir=None, replan:bool=False, step=0):
+        # history, plan = self.history_manager.get()
+        # previous_instruction = navigation_instructions[index - 1]
+        # current_instruction = navigation_instructions[index]
+        # next_instruction = navigation_instructions[index + 1]
+        # prompt = self.prompt.format(actions_description=actions_description, scene_description=scene_description, previous_instruction=previous_instruction, current_instruction=current_instruction, next_instruction=next_instruction, history=history)
+        # # system_prompt = self.system_prompt.format(actions_description=actions_description)
         history, plan = self.history_manager.get()
-        previous_instruction = navigation_instructions[index - 1]
-        current_instruction = navigation_instructions[index]
-        next_instruction = navigation_instructions[index + 1]
-        prompt = self.prompt.format(actions_description=actions_description, scene_description=scene_description, previous_instruction=previous_instruction, current_instruction=current_instruction, next_instruction=next_instruction, history=history)
-        # system_prompt = self.system_prompt.format(actions_description=actions_description)
+        input = {}
+        input['current_time_step'] = f'step {step}'
+        input['whole_instruction_list'] = navigation_instructions
+        input['current_instruction'] = current_instruction
+        input['current_scene'] = scene_description
+        input['history'] = history
+        prompt = self.prompt.format(input=json.dumps(input))
         responses_raw = self.llm.request(prompt, model_name=self.model_name)
         responses = re.findall(r"```json(?:\w+)?\n(.*?)```", responses_raw, re.DOTALL | re.IGNORECASE)
         response = json.loads(responses[-1])
@@ -527,9 +659,18 @@ You are an advanced multimodal perception system for a drone executing Vision-La
 3. Navigation-Relevant Tagging
    Relavant_to_instruction: confidence score from 0 to 1
 
+4. Output Format
+    JSON with the following keys:
+    - object_id: unique identifier
+    - primary_category: primary object category
+    - functional_components: list of functional components
+    - spatial_config: dictionary with bbox, position, depth_estimate, 3d_size
+    - navigation_tags: dictionary with relevant_to_instruction
+    **Only output json without explanations.**
+
 ### Example ###
 [Instruction]: Proceed to the building with a glass entrance
-[OUTPUT FORMAT]
+[OUTPUT]
 ```json
 [
     {{
@@ -658,6 +799,7 @@ You are an advanced multimodal perception system for a drone executing Vision-La
             index = self.instruction_indexes[i]
             # instruction = [None] + instruction.split('. ') + [None]
             instruction = [None] + self.landmarks[i] + [None]
+            current_instruction = self.landmarks[i][index - 1][f'sub-instruction_{index}']
             scene = get_scene(instruction=instruction[index], rgb=rgb, landmark=self.landmarks[i][index - 1]['landmark'], log_dir=log_dir)
             if self.manual_mode:
                 action, finished = map(int, input('Enter action and finished: ').split())
@@ -677,10 +819,10 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                 continue
             else: 
                 if self.planner.model_name == DEEPSEEKR1_32B:
-                    response = self.planner.plan(navigation_instructions=instruction, scene_description=scene, index = index, log_dir=log_dir)
+                    response = self.planner.plan(navigation_instructions=self.landmarks[i], scene_description=scene, index = index, current_instruction=current_instruction, log_dir=log_dir,step=step)
                     thoughs, probabilities, action, finished = self.parser.parse_response(response, log_dir=log_dir)
                 else:
-                    thoughs, probabilities, action, finished = self.planner.plan_split(navigation_instructions=instruction, scene_description=scene, index = index, log_dir=log_dir)
+                    thoughs, probabilities, action, finished = self.planner.plan_split(navigation_instructions=self.landmarks[i], current_instruction=current_instruction, scene_description=scene, log_dir=log_dir, step=step)
             if finished:
                 self.instruction_indexes[i] = index + 1
                 print(f'Instruction {index} finished')
@@ -689,11 +831,12 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                     action = 0
                 elif action == 0:
                     print(f'Wrong finished')
-                    thoughs, probabilities, action, finished = self.planner.plan_split(navigation_instructions=instruction, scene_description=scene, index=index, log_dir=log_dir, replan=True)
+                    current_instruction = self.landmarks[i][index - 1][f'sub-instruction_{index}']
+                    thoughs, probabilities, action, finished = self.planner.plan_split(navigation_instructions=self.landmarks[i], scene_description=scene, current_instruction=current_instruction, log_dir=log_dir, replan=True)
                 self.history_manager.clear()
             # thoughs, plan, action = self.parser.parse_response(response, log_dir=log_dir)
             # self.history_manager.update_plan(plan)
-            self.history_manager.update(action, scene, instructions=instruction[index], log_dir=log_dir)
+            self.history_manager.update(action, scene, instructions=current_instruction, log_dir=log_dir)
             actions.append(action)
         print(f'Action: {actions}')
         return actions
