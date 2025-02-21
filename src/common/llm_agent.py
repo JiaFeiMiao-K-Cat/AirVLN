@@ -13,6 +13,7 @@ import tqdm
 import math
 import random
 import json
+import json5
 import numpy as np
 from collections import defaultdict
 from pathlib import Path
@@ -50,47 +51,163 @@ class HistoryManager():
     def update(self, action, observation, instructions, log_dir=None):
         self.history_observations.append(observation)
         actions = actions_description.split('\n')
-        prompt = """[Task Description]
-You are a drone operator. Your task is to update the execution history for the current instruction. Based on the provided navigation instruction, the current scene observation, the planned action (which is about to be executed), and the previous history, generate a concise summary that captures the key observations, the guidance from the navigation instruction, and the actions that have been executed so far. **Assume that the planned action is successfully executed**, and update the history accordingly so that the next usage of history reflects the current situation.
+        prompt = """[General Task Description]
+You are an embodied drone that navigates in the real world. You need to based on the current scene and instruction, update the visual memory to track the status of objects relative to the drone's position. 
 
+You should follow this steps:
+- Track the status of objects relative to the drone's actions. For each object, determine if it is:
+    - Approaching: Object is moving closer to the drone.
+    - Moving away: Object is getting farther from the drone.
+    - Searching for: Object is within the field of view but needs further analysis.
+    - Founded: Object has been discovered or identified by the drone.
+    - Not visible: Object is outside the current field of view.
+- Include the approximate distance of each object from the drone (e.g., "10m", "20m", etc.).
+- The location should reflect the relative position of the object, such as "center", "left", "right", etc.
+- Update the visual memory after each action performed
 
-[Important Note]
-When the instruction says **"turn right"** (or **"turn left"**) without a specified degree, it means a large turn, usually 90 degrees.
-When the instruction says **"turn around"** without a specified degree, it means a large turn, usually 180 degrees.
-When the valid action in the list says **"TURN_RIGHT"** (or **"TURN_LEFT"**), it refers to a small 15-degree turn. Be sure to distinguish between these cases.
+#### Step 1: Track Object's Status
+For each object, determine its current status based on its movement relative to the drone's position. Use the following statuses:
+- **Approaching**: Object is getting closer to the drone.
+- **Moving away**: Object is moving farther from the drone.
+- **Being searched for**: Object is visible but the drone is not yet sure about its exact location.
+- **Not visible**: Object is outside the drone's current field of view.
+- **Founded**: Object has been discovered or recognized by the drone.
 
-[Output Format]
-Return the result in JSON format with a single key "history". The value should be a brief string summarizing the progress of the current instruction, incorporating the executed planned action.
+#### Step 2: Update Object's Distance
+For each object, determine the approximate distance to the drone after the action is executed. Use the object's depth estimate or calculate based on the drone’s movement.
 
-[Example]
-If the inputs are:
-- Navigation Instructions: "turn left and move forward until you see a building"
-- Current Scene: "There is no building in front of me."
-- Planned Action: 1: MOVE_FORWARD (5 meters)
-- Previous History: "I have turned left 90 degrees."
-Then a valid output could be:
-Output:
+#### Step 3: Determine Object's Location
+For each object, track its location relative to the drone’s position. Possible locations include:
+- **Center**: The object is directly in front of or near the drone.
+- **Left**: The object is on the left side of the drone.
+- **Right**: The object is on the right side of the drone.
+- **Behind**: The object is behind the drone.
+
+#### Step 4: Update Visual Memory
+After considering the status, distance, and location of each object, update the visual memory in the following format:
+
+- **Object**: Object name (e.g., "building", "vehicle", etc.)
+- **Status**: The determined status from Step 1 (e.g., "approaching", "moving away", "founded", etc.)
+- **Location**: The determined location from Step 3 (e.g., "center", "left", "right", etc.)
+- **Distance**: The updated distance to the drone after the action (e.g., "10m", "15m", etc.)
+
+############
+
+EXAMPLE:
+
+### INPUT
+
+Current Instruction: turn left after the park and visit the park benches along the side.
+
+Current Scene: [
+    {{
+        "object_id": "building_01",
+        "primary_category": "building",
+        "functional_components": ["entrance"],
+        "spatial_config": {{
+        "bbox": [0.32, 0.15, 0.68, 0.83],
+        "position": "center",
+        "depth_estimate": "28.4m ± 2.1",
+        "3d_size": {{
+            "width": 15.2,
+            "height": 32.7,
+            "depth": 12.8
+        }}
+        }},
+        "navigation_tags": {{
+        "relevant_to_instruction": 0.92
+        }}
+    }},
+    {{
+        "object_id": "road_01",
+        "primary_category": "road",
+        "spatial_config": {{
+        "bbox": [0.12, 0.65, 0.23, 0.72],
+        "position": "left",
+        "depth_estimate": "8.7m ± 1.4",
+        "3d_size": {{
+            "width": 2.3,
+            "height": 1.8,
+            "depth": 4.1
+        }}
+        }},
+        "navigation_tags": {{
+            "relevant_to_instruction": 0.86
+        }}
+    }}
+]
+
+Visual Memory: [
+    {{
+        "object": "road",
+        "status": "Approaching",
+        "location": "center",
+        "distance": "12.4m"
+    }},{{
+        "object": "building",
+        "status": "Moving away",
+        "location": "right",
+        "distance": "27.4m"
+    }},{{
+        "object": "park",
+        "status": "Searching for",
+        "location": "unknow",
+        "distance": "unknow"
+    }}
+]
+
+Action: 2: TURN_LEFT (15 degrees)
+
+### OUTPUT
+
 ```json
-{{"history": "I have turned left and moved forward 5 meters. I am finding the building."}}
+{{
+    "visual_memory": [
+        {{
+            "object": "road",
+            "status": "Moving away",
+            "location": "center",
+            "distance": "8.7m"
+        }},{{
+            "object": "building",
+            "status": "Approaching",
+            "location": "center",
+            "distance": "28.4m"
+        }},{{
+            "object": "park",
+            "status": "Searching for",
+            "location": "unknow",
+            "distance": "unknow"
+        }}
+    ]
+}}
 ```
 
-[Input]
-Navigation Instruction: {navigation_instruction}
-Current Scene: {observation}
-Planned Action: {action}
-Previous History: {history}
+############
+
+### INPUT
+
+Current Instruction: {navigation_instruction}
+
+Current Scene: {scene_description}
+
+Visual Memory: {visual_memory}
+
+Action: {action}
 """
         responses_raw = ''
         try: 
             if action is not None:
-                self.history_actions.append(action)
-                prompt = prompt.format(history=self.history, action=actions[action], observation=observation, navigation_instruction=instructions)
+                self.history_actions.append(actions[action])
+                if len(self.history_actions) > 10:
+                    self.history_actions.pop(0)
+                prompt = prompt.format(visual_memory=self.history, action=actions[action], scene_description=observation, navigation_instruction=instructions)
             else:
-                prompt = prompt.format(history=self.history, action=None, observation=observation, navigation_instructions=instructions)
+                prompt = prompt.format(visual_memory=self.history, action=None, scene_description=observation, navigation_instructions=instructions)
             responses_raw = self.llm.request(prompt=prompt, model_name=self.model_name)
             responses = re.findall(r"```json(?:\w+)?\n(.*?)```", responses_raw, re.DOTALL | re.IGNORECASE)
-            response = json.loads(responses[-1])
-            self.history = response['history']
+            response = json5.loads(responses[-1])
+            self.history = response['visual_memory']
         except Exception as e:
             logger.error(f"Failed to parse response: {responses_raw}")
         
@@ -102,14 +219,19 @@ Previous History: {history}
                 f.write("\n---\n")
                 f.write(responses_raw)
                 f.write("\n---\n")
-                f.write(self.history)
+                f.write(json.dumps(self.history))
+                f.write("\n---\n")
+                f.write(str(self.history_actions))
 
     def update_plan(self, plan):
         if plan is not None:
             self.plan = plan
 
     def get(self):
-        return self.history, self.plan
+        history = {}
+        history['executed_actions'] = self.history_actions
+        history['visual_memory'] = self.history
+        return history, self.plan
 
     def get_actions(self):
         return self.history_actions
@@ -186,23 +308,123 @@ class LLMParser():
             return None, None, None
     
     def parse_observation(self, observation, instructions, landmarks=None, log_dir=None):
-        prompt = """[Task Description]You are an embodied drone that navigates in the real world. You need to follow the navigation instructions to find the destination and stop. Now, based on the 'Observation', describe the scene you see. Make sure to include the visible landmarks and any other relevant details.
+        prompt = """[ROLE]  
+You are an advanced multimodal perception system for a drone. Your task is to analyze observation and generate mission-aware environmental semantics for the given [Instruction].
 
-[Observation]:
-{observation}
+[Processing Requirements:]  
+1. Hierarchical Semantic Parsing
+	 Detect RELEVANT objects at two levels:
+	 a) Primary categories: building, vegetation, vehicle, road, sky
+   b) Functional components: e.g. if building detected: ['entrance', 'window', 'balcony', 'roof_antenna']  
 
-[Output Format] Provide them in JSON format with the following keys: scene. And make sure that the 'scene' is a string.
-[Output Example]:
+2. Spatial Configuration:  
+   Bounding box: [x_min, y_min, x_max, y_max] normalized to [0,1]
+   Relative position (self-center): left/right/center
+   Depth: Metric estimate with confidence interval (22.5m ± 3.2m)
+   3D size: {{"width": _, "height": _, "depth": _}} from monocular depth  
+
+3. Navigation-Relevant Tagging
+   Relavant_to_instruction: confidence score from 0 to 1
+
+4. Output Format
+    JSON with the following keys:
+    - object_id: unique identifier
+    - primary_category: primary object category
+    - functional_components: list of functional components
+    - spatial_config: dictionary with bbox, position, depth_estimate, 3d_size
+    - navigation_tags: dictionary with relevant_to_instruction
+    **Only output json in markdown codeblocks without explanations.**
+
+### Example ###
+[Instruction]: Proceed to the building with a glass entrance
+[OUTPUT]:
 ```json
-{{"scene": "..."}}
-```"""
+[
+    {{
+        "object_id": "building_01",
+        "primary_category": "building",
+        "functional_components": [
+            "entrance",
+            "window",
+            "glass_facade"
+        ],
+        "spatial_config": {{
+            "bbox": [
+                0.32,
+                0.15,
+                0.68,
+                0.83
+            ],
+            "position": "center",
+            "depth_estimate": "28.4m ± 2.1",
+            "3d_size": {{
+                "width": 15.2,
+                "height": 32.7,
+                "depth": 12.8
+            }}
+        }},
+        "navigation_tags": {{
+            "relevant_to_instruction": 0.92
+        }}
+    }},
+    {{
+        "object_id": "vehicle_03",
+        "primary_category": "vehicle",
+        "spatial_config": {{
+            "bbox": [
+                0.12,
+                0.65,
+                0.23,
+                0.72
+            ],
+            "position": "left",
+            "depth_estimate": "8.7m ± 1.4",
+            "3d_size": {{
+                "width": 2.3,
+                "height": 1.8,
+                "depth": 4.1
+            }}
+        }},
+        "navigation_tags": {{
+            "relevant_to_instruction": 0.86
+        }}
+    }},
+    {{
+        "object_id": "vegetation_12",
+        "primary_category": "vegetation",
+        "spatial_config": {{
+            "bbox": [
+                0.78,
+                0.45,
+                0.89,
+                0.55
+            ],
+            "position": "right",
+            "depth_estimate": "14.2m ± 2.8",
+            "3d_size": {{
+                "width": 5.7,
+                "height": 8.2,
+                "depth": 5.1
+            }}
+        }},
+        "navigation_tags": {{
+            "relevant_to_instruction": 0.23
+        }}
+    }}
+]
+```
+
+### Input ###
+[Instruction]: {navigation_instructions}
+
+[Observation]: {observation}"""
         prompt = prompt.format(instructions=instructions, observation=observation, landmarks=landmarks)
         responses_raw = ''
         try:
             responses_raw = self.llm.request(prompt, model_name=self.model_name)
             responses = re.findall(r"```json(?:\w+)?\n(.*?)```", responses_raw, re.DOTALL | re.IGNORECASE)
             response = json.loads(responses[-1])
-            scene = response['scene']
+            scene = re
             if log_dir is not None:
                 with open(os.path.join(log_dir, 'parse_observation.txt'), 'w+') as f:
                     f.write(self.model_name)
@@ -211,7 +433,7 @@ class LLMParser():
                     f.write("\n---\n")
                     f.write(responses_raw)
                     f.write("\n---\n")
-                    f.write(scene)
+                    f.write(response)
             return scene
         except Exception as e:
             logger.error(f"Failed to parse response: {responses_raw}")
@@ -666,11 +888,11 @@ You are an advanced multimodal perception system for a drone executing Vision-La
     - functional_components: list of functional components
     - spatial_config: dictionary with bbox, position, depth_estimate, 3d_size
     - navigation_tags: dictionary with relevant_to_instruction
-    **Only output json without explanations.**
+    **Only output json in markdown codeblocks without explanations.**
 
 ### Example ###
 [Instruction]: Proceed to the building with a glass entrance
-[OUTPUT]
+[OUTPUT]:
 ```json
 [
     {{
@@ -755,9 +977,10 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                 observations = re.findall(r"```json(?:\w+)?\n(.*?)```", observation_raw, re.DOTALL | re.IGNORECASE)
                 if len(observations) == 0:
                     observation = observation_raw
+                    observation = self.parser.parse_observation(observation, instructions=instruction, landmarks=landmark, log_dir=log_dir)
                 else: 
-                    observation = observations[-1]
-            scene = self.parser.parse_observation(observation, instructions=instruction, landmarks=landmark, log_dir=log_dir)
+                    observation = json5.loads(observations[-1])
+            # scene = self.parser.parse_observation(observation, instructions=instruction, landmarks=landmark, log_dir=log_dir)
             if log_dir is not None and self.detector == 'vlm':
                 with open(os.path.join(log_dir, 'scene.txt'), 'w+') as f:
                     f.write(self.vlm_model)
@@ -774,6 +997,7 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                     f.write(prompt)
                     f.write("\n---\n")
                     f.write(str(observation))
+            scene = observation
             return scene
         # if self.detector == 'yolo':
         #     for instruction, rgb, prev_action in zip(instructions, rgbs, prev_actions):
