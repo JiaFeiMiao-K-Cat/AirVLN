@@ -524,7 +524,7 @@ You are an advanced multimodal perception system for a drone executing Vision-La
    Depth: Metric estimate with confidence interval (22.5m ± 3.2m)
    3D size: {{"width": _, "height": _, "depth": _}} from monocular depth  
 
-3. Navigation-Relevant Taggin
+3. Navigation-Relevant Tagging
    Relavant_to_instruction: confidence score from 0 to 1
 
 ### Example ###
