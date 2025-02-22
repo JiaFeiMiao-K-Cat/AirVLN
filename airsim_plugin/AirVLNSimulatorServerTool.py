@@ -358,7 +358,7 @@ class EventHandler(object):
                 continue
             else:
                 if args.onscreen:
-                    subprocess_execute = "bash {} -opengl4 -NoSound -NoVSync -GraphicsAdapter={} --settings {} ".format(
+                    subprocess_execute = "bash {} -NoSound -NoVSync -GraphicsAdapter={} --settings {} ".format(
                         choose_env_exe_paths[index],
                         gpus[index],
                         str(CWD_DIR / 'airsim_plugin/settings' / str(index+1) / 'settings.json'),
