@@ -1,7 +1,7 @@
 cd ./AirVLN
 echo $PWD
 
-# nohup python -u ./airsim_plugin/AirVLNSimulatorServerTool_LLM.py --onscreen --gpus 0 &
+# python -u ./airsim_plugin/AirVLNSimulatorServerTool_LLM.py --onscreen --gpus 0
 
 python -u ./src/vlnce_src/eval_vlm.py \
 --EVAL_GENERATE_VIDEO \
