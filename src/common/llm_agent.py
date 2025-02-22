@@ -27,7 +27,7 @@ import msgpack_numpy
 
 from utils.logger import logger
 from utils.utils import get_rank, is_dist_avail_and_initialized, is_main_process, init_distributed_mode
-from utils.vision import VisionClient
+from utils.vision import Frame, VisionClient
 from Model.il_trainer import VLNCETrainer
 from Model.utils.tensor_dict import DictTree, TensorDict
 from Model.aux_losses import AuxLosses
@@ -37,13 +37,14 @@ from Model.utils.common import append_text_to_image, images_to_video
 from src.common.param import args
 from src.vlnce_src.env import AirVLNLLMENV
 from src.common.llm_wrapper import LLMWrapper, GPT3, GPT4, GPT4O_MINI, LLAMA3, RWKV, QWEN, INTERN, GEMMA2, DEEPSEEKR1_32B, DEEPSEEKR1_8B
-from src.common.vlm_wrapper import VLMWrapper, LLAMA3V
+from src.common.vlm_wrapper import VLMWrapper, LLAMA3V, image_to_base64
 
 class HistoryManager():
     def __init__(self, model_name=GPT4O_MINI):
         self.model_name = model_name
         self.history_actions = []
         self.history_observations = []
+        self.history_thoughts = None
         self.history = None
         self.llm = LLMWrapper()
         self.plan = None
@@ -74,10 +75,10 @@ For each object, determine its current status based on its movement relative to 
 - **Founded**: Object has been discovered or recognized by the drone.
 
 #### Step 2: Update Object's Distance
-For each object, determine the approximate distance to the drone after the action is executed. Use the object's depth estimate or calculate based on the drone’s movement.
+For each object, determine the approximate distance to the drone after the action is executed. Use the object's depth estimate or calculate based on the drone's movement.
 
 #### Step 3: Determine Object's Location
-For each object, track its location relative to the drone’s position. Possible locations include:
+For each object, track its location relative to the drone's position. Possible locations include:
 - **Center**: The object is directly in front of or near the drone.
 - **Left**: The object is on the left side of the drone.
 - **Right**: The object is on the right side of the drone.
@@ -151,8 +152,8 @@ Visual Memory: [
     }},{{
         "object": "park",
         "status": "Searching for",
-        "location": "unknow",
-        "distance": "unknow"
+        "location": "unknown",
+        "distance": "unknown"
     }}
 ]
 
@@ -199,10 +200,12 @@ Action: {action}
         try: 
             if action is not None:
                 self.history_actions.append(actions[action])
-                if len(self.history_actions) > 10:
-                    self.history_actions.pop(0)
+                # if len(self.history_actions) > 20:
+                #     self.history_actions.pop(0)
+                return
                 prompt = prompt.format(visual_memory=self.history, action=actions[action], scene_description=observation, navigation_instruction=instructions)
             else:
+                return
                 prompt = prompt.format(visual_memory=self.history, action=None, scene_description=observation, navigation_instructions=instructions)
             responses_raw = self.llm.request(prompt=prompt, model_name=self.model_name)
             responses = re.findall(r"```json(?:\w+)?\n(.*?)```", responses_raw, re.DOTALL | re.IGNORECASE)
@@ -230,7 +233,8 @@ Action: {action}
     def get(self):
         history = {}
         history['executed_actions'] = self.history_actions
-        history['visual_memory'] = self.history
+        history['previous_thoughts'] = self.history_thoughts
+        # history['visual_memory'] = self.history
         return history, self.plan
 
     def get_actions(self):
@@ -240,6 +244,7 @@ Action: {action}
         self.history_actions = []
         self.history_observations = []
         self.history = None
+        self.history_thoughts = None
         self.plan = None
 
 actions_description = """0: TASK_FINISH  
@@ -480,7 +485,7 @@ current time step: step t
 
 [current scene]
 
-[history]: including [Executed actions] and [visual memory]
+[history]: including [Executed actions] and [Previous Thoughts]
 
 ######
 
@@ -840,6 +845,10 @@ class Agent():
         instructions = observations['instruction']
         self.instruction_indexes = [1] * len(instructions)
         self.landmarks = []
+        if self.manual_mode:
+            with open(os.path.join(log_dir, 'instructions.txt'), 'w+') as f:
+                f.write("\n".join(instructions))
+            return
         if self.detector == 'dino' or self.detector == 'vlm':
             for instruction in instructions:
                 self.landmarks.append(self.planner.extract_landmarks(instruction, log_dir=log_dir))
@@ -1021,11 +1030,10 @@ You are an advanced multimodal perception system for a drone executing Vision-La
             instruction = instructions[i]
             rgb = rgbs[i]
             index = self.instruction_indexes[i]
-            # instruction = [None] + instruction.split('. ') + [None]
-            instruction = [None] + self.landmarks[i] + [None]
-            current_instruction = self.landmarks[i][index - 1][f'sub-instruction_{index}']
-            scene = get_scene(instruction=instruction[index], rgb=rgb, landmark=self.landmarks[i][index - 1]['landmark'], log_dir=log_dir)
             if self.manual_mode:
+                frame = Frame(rgb)
+                image_to_base64(frame.image, os.path.join(log_dir, f'{i}.jpg'))
+                instruction = [None] + instruction.split('. ') + [None]
                 action, finished = map(int, input('Enter action and finished: ').split())
                 finished = finished == 1
                 if finished:
@@ -1042,6 +1050,10 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                 actions.append(action)
                 continue
             else: 
+                # instruction = [None] + instruction.split('. ') + [None]
+                instruction = [None] + self.landmarks[i] + [None]
+                current_instruction = self.landmarks[i][index - 1][f'sub-instruction_{index}']
+                scene = get_scene(instruction=instruction[index], rgb=rgb, landmark=self.landmarks[i][index - 1]['landmark'], log_dir=log_dir)
                 if self.planner.model_name == DEEPSEEKR1_32B:
                     response = self.planner.plan(navigation_instructions=self.landmarks[i], scene_description=scene, index = index, current_instruction=current_instruction, log_dir=log_dir,step=step)
                     thoughs, probabilities, action, finished = self.parser.parse_response(response, log_dir=log_dir)
@@ -1061,6 +1073,7 @@ You are an advanced multimodal perception system for a drone executing Vision-La
             # thoughs, plan, action = self.parser.parse_response(response, log_dir=log_dir)
             # self.history_manager.update_plan(plan)
             self.history_manager.update(action, scene, instructions=current_instruction, log_dir=log_dir)
+            self.history_manager.history_thoughts = thoughs
             actions.append(action)
         print(f'Action: {actions}')
         return actions

@@ -21,7 +21,8 @@ DEEPSEEKR1_32B = "deepseek-r1:32b-qwen-distill-fp16"
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 chat_log_path = os.path.join(CURRENT_DIR, "chat_log.txt")
-openai_api_key = os.getenv("OPENAI_API_KEY")
+openai_api_key = os.getenv("OPENAI_API_KEY", default="token-abc123")
+DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", default="token-abc123")
 
 class LLMWrapper:
     def __init__(self, temperature=0.0):
@@ -33,6 +34,10 @@ class LLMWrapper:
         self.gpt_client = openai.OpenAI(
             base_url='https://api.openai-proxy.org/v1',
             api_key=openai_api_key,
+        )
+        self.dashscope_client = openai.OpenAI(
+            base_url='https://dashscope.aliyuncs.com/compatible-mode/v1',
+            api_key=DASHSCOPE_API_KEY,
         )
         self.rwkv_client = openai.OpenAI(
             base_url='http://localhost:8000',

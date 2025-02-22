@@ -8,9 +8,14 @@ LLAMA3V = "llama3.2-vision:11b-instruct-q8_0"
 MINICPM = "minicpm-v:8b-2.6-fp16"
 GPT4O_V = "gpt-4o"
 INTERN_VL = "OpenGVLab/InternVL2_5-8B"
+QWEN_VL_7B = "qwen2.5-vl-7b-instruct"
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 chat_log_path = os.path.join(CURRENT_DIR, "chat_vlm_log.txt")
+
+
+openai_api_key = os.getenv("OPENAI_API_KEY", default="token-abc123")
+DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", default="token-abc123")
 
 
 import base64
@@ -44,7 +49,11 @@ class VLMWrapper:
         )
         self.gpt_client = openai.OpenAI(
             base_url='https://api.openai-proxy.org/v1',
-            api_key="sk-rOUL6p7X1FwtJeis8LaRA10TaoyGIyd2zxOOon8Yb6MV7XWz",
+            api_key=openai_api_key,
+        )
+        self.dashscope_client = openai.OpenAI(
+            base_url='https://dashscope.aliyuncs.com/compatible-mode/v1',
+            api_key=DASHSCOPE_API_KEY,
         )
         self.lmdeploy_client = openai.OpenAI(
             base_url='http://localhost:23333/v1',
@@ -56,6 +65,8 @@ class VLMWrapper:
             client = self.gpt_client
         elif model_name == LLAMA3V or model_name == MINICPM:
             client = self.ollama_client
+        elif model_name == QWEN_VL_7B:
+            client = self.dashscope_client
         else:
             client = self.lmdeploy_client
         

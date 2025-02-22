@@ -9,7 +9,7 @@ python -u ./src/vlnce_src/eval_llm.py \
 --run_type eval \
 --name LLM \
 --batchSize 1 \
---EVAL_LLM qwen2.5:32b-instruct-fp16 \
+--EVAL_LLM gpt-4o \
 --EVAL_DATASET val_unseen \
 --EVAL_NUM -1 \
 --Image_Width_RGB 640 \
