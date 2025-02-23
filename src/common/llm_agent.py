@@ -39,6 +39,47 @@ from src.vlnce_src.env import AirVLNLLMENV
 from src.common.llm_wrapper import LLMWrapper, GPT3, GPT4, GPT4O_MINI, LLAMA3, RWKV, QWEN, INTERN, GEMMA2, DEEPSEEKR1_32B, DEEPSEEKR1_8B
 from src.common.vlm_wrapper import VLMWrapper, LLAMA3V, image_to_base64
 
+
+scene_prompt_preprocess = """You are an embodied drone that navigates in the real world. Your task is to generate a JSON request for a vision perception expert to help you plan next action.
+
+The JSON must include the following information:
+- "required_information": An object containing:
+  - "overall_scene_description": A string instructing the expert to provide a comprehensive description of the overall scene with emphasis on environmental layout, obstacles, and significant spatial details.
+  - "objects": A list (array) where each element is an object with the following properties:
+      - "name": The name of object.
+      - "focus_area": A string specifying which region of the image should receive special attention (for example, "upper left", "center", "lower right", etc.), guiding the expert on where to concentrate their analysis.
+  - "additional_guidance": A string instructing the expert to identify any obstacles or hazards present in the scene and to suggest potential navigation actions if applicable.
+
+Your output must be strictly in JSON format, without any additional commentary or explanation.
+
+Instruction: {navigation_instructions}
+
+Current Instruction: {current_instruction}"""
+
+scene_prompt_activate = """[ROLE]  
+You are an advanced multimodal perception system for a drone executing Vision-Language Navigation (VLN). Your task is to analyze first-person view RGB-D imagery and generate mission-aware environmental semantics for the given [Instruction].
+
+The JSON must include the following information:
+- "scene": An object containing:
+  - "overall_scene_description": A string instructing the expert to provide a comprehensive description of the overall scene following the "required_information" properties in [Suggestion].
+  - "objects": An array where each element is an object representing a key element in the scene. Each object should include the following properties:
+    - "name": The unique identifier or name of the object.
+    - "category": The type of object (e.g., building, vehicle, vegetation, road).
+    - "relative_horizontal_position": The object's horizontal position relative to the drone. Use one of these categories: "especially left", "left", "somewhat left", "aligned", "somewhat right", "right", "especially right".
+    - "distance": The estimated distance from the drone (e.g. "16m").
+    - "status": The current state of the object relative to the drone (e.g., "founded", "approaching", "moving away", "being searched for", "not visible").
+  - "additional_guidance": Any other informations needed following the "additional_guidance" properties in [Suggestion].
+
+**Note: If multiple objects share the same "name", differentiate them by appending a unique number to their name (e.g., "vehicle_1", "vehicle_2").**
+**Note: giving special priority to the areas specified by "focus_area" properties in [Suggestion]**
+
+Your output must strictly be valid JSON without any additional commentary or explanation. Use the provided JSON input as guidance to generate your scene description.
+
+### Input ###
+[Instruction]: {navigation_instructions}
+
+[Suggestion]: {suggestion}"""
+
 class HistoryManager():
     def __init__(self, model_name=GPT4O_MINI):
         self.model_name = model_name
@@ -420,7 +461,7 @@ You are an advanced multimodal perception system for a drone. Your task is to an
 ```
 
 ### Input ###
-[Instruction]: {navigation_instructions}
+[Instruction]: {instructions}
 
 [Observation]: {observation}"""
         prompt = prompt.format(instructions=instructions, observation=observation, landmarks=landmarks)
@@ -485,7 +526,7 @@ current time step: step t
 
 [current scene]
 
-[history]: including [Executed actions] and [Previous Thoughts]
+[history]: including [Executed actions]
 
 ######
 
@@ -515,6 +556,10 @@ Your output should include:
 
 [selected_action]: Explicitly select the action with highest probability.
 
+[execute_times]: How many times does the selected action should be executed.
+
+[questions]: a string, questions you need help about current scene or instruction or planning.
+
 [instruction_finished]: a bool value, identify if the current instruction has been finished.
 
 #######
@@ -526,17 +571,18 @@ A valid output EXAMPLE:
 {{
   "thought": "The current instruction is to 'Turn right and check for a red building.' In the current scene, there's a red structure visible to the right. Since the historical actions show I previously moved forward and turned left, executing a right turn now aligns with the instruction to verify the red building's presence. The visual memory confirms no prior red structures were detected until now.",
   "probabilities": {{
-    "0": 0.0,
-    "1": 0.1,
-    "2": 0.0,
-    "3": 0.0,
-    "4": 0.8,
-    "5": 0.0,
-    "6": 0.0,
-    "7": 0.1
+    "0(TASK_FINISH)": 0.0,
+    "1(MOVE_FORWARD)": 0.1,
+    "2(TURN_LEFT)": 0.0,
+    "3(TURN_RIGHT)": 0.0,
+    "4(GO_UP)": 0.8,
+    "5(GO_DOWN)": 0.0,
+    "6(MOVE_LEFT)": 0.0,
+    "7(MOVE_RIGHT)": 0.1
   }},
   "selected_action": 3,
-  "instruction_finished": false
+  "execute_times": 6,
+  "questions": "When the red building is aligned? How far is it from the drone?",
 }}
 ```
 #############
@@ -547,9 +593,7 @@ A valid output EXAMPLE:
     - Output probabilities for **ALL 8 actions** (0-7)
     - Higher probability = stronger preference
     - Only if the Current Instruction is finished and it is the last instruction, can choose the TASK_FINISH action
-2. **Instruction Finish Rule**:
-    - If the Current Instruction is finished, set "instruction_finished" to true
-3. **Important Note**:
+2. **Important Note**:
     - When the instruction says **"turn right"** (or **"turn left"**) without a specified degree, it means a large turn, usually 90 degrees(about 6 times).
     - When the instruction says **"turn around"** without a specified degree, it means a large turn, usually 180 degrees(about 12 times).
     - When the valid action in the list says **"TURN_RIGHT"** (or **"TURN_LEFT"**), it refers to a small 15-degree turn. Be sure to distinguish between these cases.
@@ -577,43 +621,56 @@ EXAMPLE:
     }}
   ],
   "current_instruction": "turn right and go down the road.",
-  "current_scene": [
-    {{
-        "object_id": "building_01",
-        "primary_category": "building",
-        "functional_components": ["entrance"],
-        "spatial_config": {{
-        "bbox": [0.32, 0.15, 0.68, 0.83],
-        "position": "center",
-        "depth_estimate": "28.4m ± 2.1",
-        "3d_size": {{
-            "width": 15.2,
-            "height": 32.7,
-            "depth": 12.8
-        }}
+  "current_scene":   {{
+    "scene": {{
+      "overall_scene_description": "The scene depicts a park with a road running through it, featuring trees and benches along the sides. The environment is characterized by a mix of open spaces and dense vegetation, with several obstacles present in the form of parked vehicles and pedestrians.",
+      "objects": [
+        {{
+          "name": "park",
+          "category": "vegetation",
+          "relative_horizontal_position": "center",
+          "distance": "50m",
+          "status": "founded"
         }},
-        "navigation_tags": {{
-        "relevant_to_instruction": 0.92
-        }}
-    }},
-    {{
-        "object_id": "road_01",
-        "primary_category": "road",
-        "spatial_config": {{
-        "bbox": [0.12, 0.65, 0.23, 0.72],
-        "position": "left",
-        "depth_estimate": "8.7m ± 1.4",
-        "3d_size": {{
-            "width": 2.3,
-            "height": 1.8,
-            "depth": 4.1
-        }}
+        {{
+          "name": "road",
+          "category": "road",
+          "relative_horizontal_position": "left",
+          "distance": "20m",
+          "status": "approaching"
         }},
-        "navigation_tags": {{
-            "relevant_to_instruction": 0.86
+        {{
+          "name": "park benches_1",
+          "category": "furniture",
+          "relative_horizontal_position": "lower right",
+          "distance": "10m",
+          "status": "being searched for"
+        }},
+        {{
+          "name": "trees_1",
+          "category": "vegetation",
+          "relative_horizontal_position": "somewhat left",
+          "distance": "30m",
+          "status": "founded"
+        }},
+        {{
+          "name": "vehicles_1",
+          "category": "vehicle",
+          "relative_horizontal_position": "especially right",
+          "distance": "15m",
+          "status": "moving away"
+        }},
+        {{
+          "name": "pedestrians_1",
+          "category": "person",
+          "relative_horizontal_position": "somewhat left",
+          "distance": "25m",
+          "status": "not visible"
         }}
+      ],
+      "additional_guidance": "The scene presents several obstacles, including parked vehicles and pedestrians. To navigate safely, it is recommended to proceed with caution and avoid any potential hazards."
     }}
-  ],
+  }},
   "history": {{
     "executed_actions": [
       "4: GO_UP (2 meters)",
@@ -623,19 +680,6 @@ EXAMPLE:
       "3: TURN_RIGHT (15 degrees)",
       "3: TURN_RIGHT (15 degrees)",
       "3: TURN_RIGHT (15 degrees)"
-    ],
-    "visual_memory": [
-      {{
-        "object": "road",
-        "status": "closing",
-        "visible": true,
-        "location": "center"
-      }},{{
-        "object": "building",
-        "status": "closing",
-        "visible": true,
-        "location": "right"
-      }}
     ]
   }}
 }}
@@ -656,7 +700,8 @@ EXAMPLE:
     "7": 0.1
   }},
   "selected_action": 2,
-  "instruction_finished": false
+  "execute_times": 1,
+  "questions": "When should I finish this instruction?",
 }}
 ```
 
@@ -737,7 +782,7 @@ EXAMPLE:
         thoughs = response['thought']
         probabilities = response['probabilities']
         action = response['selected_action']
-        finished = response['instruction_finished']
+        question = response['questions']
         
         if log_dir is not None:
             file_name = 'plan.txt' if not replan else 'replan.txt'
@@ -754,8 +799,8 @@ EXAMPLE:
                 f.write("\n---\n")
                 f.write(str(action))
                 f.write("\n---\n")
-                f.write(str(finished))
-        return thoughs, probabilities, action, finished
+                f.write(str(question))
+        return thoughs, probabilities, action
     
     def extract_landmarks(self, navigation_instructions: str, log_dir=None):
         prompt = """[[Task Instruction]]
@@ -821,6 +866,55 @@ Output:"""
                 f.write("\n---\n")
                 f.write(landmarks[-1])
         return json.loads(landmarks[-1])
+    
+    def finished_judge(self, current_instruction, next_instruction, scene, log_dir=None):
+        prompt = """You are a drone navigation analysis expert. You are provided with the following inputs:
+1. **Current Instruction**: The command that is currently being executed.
+2. **Next Instruction**: The subsequent command that will be executed.
+3. **Action History**: A list of actions that have been performed so far.
+4. **Current Scene Description**: A detailed description of the current scene.
+
+Your task is to determine whether the current instruction has been fully completed, partially completed, or not completed at all. To make this judgment, analyze the inputs as follows:
+- Evaluate if the actions taken (from the action history) align with the directives in the current instruction.
+- Consider the current scene description to verify if the expected outcomes of the current instruction are visible.
+- Use the next instruction as a clue to see if it implies a transition from the current instruction.
+- Summarize relevant evidence from the inputs to support your conclusion.
+
+Output your analysis strictly in valid JSON format with the following structure:
+{{
+  "instruction_status": "<completed | partially_completed | not_completed>",
+  "justification": "<A brief explanation of your decision>",
+  "evidence": "<A summary of the relevant details from the current instruction, next instruction, action history, and current scene description that supports your decision>"
+}}
+
+Your output must be strictly in JSON codeblock with no additional commentary or explanation.
+
+Current Instruction: {current_instruction}
+Next Instruction: {next_instruction}
+Action History: {action_history}
+Current Scene Description: {scene}
+"""
+        prompt = prompt.format(current_instruction=current_instruction, next_instruction=next_instruction, action_history=self.history_manager.get_actions(), scene=scene)
+        response_raw = self.llm.request(prompt, model_name=self.model_name)
+        response = re.findall(r"```json(?:\w+)?\n(.*?)```", response_raw, re.DOTALL | re.IGNORECASE)
+        if len(response) == 0:
+            try: 
+                judge = json5.loads(response_raw)
+            except Exception as e:
+                judge = response_raw
+        else:
+            judge = json5.loads(response[-1])
+        if log_dir is not None:
+            with open(os.path.join(log_dir, 'judge.txt'), 'w+') as f:
+                f.write(self.model_name)
+                f.write("\n---\n")
+                f.write(prompt)
+                f.write("\n---\n")
+                f.write(response_raw)
+                f.write("\n---\n")
+                f.write(str(judge))
+        return judge
+
 
 class Agent():
     def __init__(self, detector, parser, planner, history, vlm_model=LLAMA3V, manual_mode: bool = False):
@@ -863,6 +957,51 @@ class Agent():
         actions = []
         instructions = observations['instruction']
         rgbs = observations['rgb']
+        def get_suggestion(navigation_instructions, current_instruction, log_dir=None):
+            prompt = scene_prompt_preprocess.format(navigation_instructions=navigation_instructions, current_instruction=current_instruction)
+            response_raw = self.planner.llm.request(prompt, model_name=self.planner.model_name)
+            response = re.findall(r"```json(?:\w+)?\n(.*?)```", response_raw, re.DOTALL | re.IGNORECASE)
+            if len(response) == 0:
+                try: 
+                    suggestion = json5.loads(response_raw)
+                except Exception as e:
+                    suggestion = response_raw
+            else:
+                suggestion = json5.loads(response[-1])
+            if log_dir is not None:
+                with open(os.path.join(log_dir, 'suggestion.txt'), 'w+') as f:
+                    f.write(self.planner.model_name)
+                    f.write("\n---\n")
+                    f.write(prompt)
+                    f.write("\n---\n")
+                    f.write(response_raw)
+                    f.write("\n---\n")
+                    f.write(str(suggestion))
+            return suggestion
+        def get_scene_with_suggestion(navigation_instructions, current_instruction, rgb, landmark, log_dir=None):
+            suggestion = get_suggestion(navigation_instructions, current_instruction, log_dir)
+            prompt = scene_prompt_activate.format(navigation_instructions=instruction, suggestion=suggestion)
+            observation_raw = self.vision.detect_capture(frame=rgb, prompt=prompt, save_path=img_path)
+            observations = re.findall(r"```json(?:\w+)?\n(.*?)```", observation_raw, re.DOTALL | re.IGNORECASE)
+            if len(observations) == 0:
+                observation = observation_raw
+                try:
+                    observation = json5.loads(observation)
+                except Exception as e:
+                    observation = self.parser.parse_observation(observation, instructions=instruction, landmarks=landmark, log_dir=log_dir)
+            else: 
+                observation = json5.loads(observations[-1])
+            # scene = self.parser.parse_observation(observation, instructions=instruction, landmarks=landmark, log_dir=log_dir)
+            if log_dir is not None:
+                with open(os.path.join(log_dir, 'scene.txt'), 'w+') as f:
+                    f.write(self.vlm_model)
+                    f.write("\n---\n")
+                    f.write(prompt)
+                    f.write("\n---\n")
+                    f.write(observation_raw)
+                    f.write("\n---\n")
+                    f.write(str(observation))
+            return observation
         def get_scene(instruction, rgb, landmark, log_dir=None):
             if self.detector == 'yolo':
                 self.vision.detect_capture(frame=rgb)
@@ -1053,23 +1192,25 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                 # instruction = [None] + instruction.split('. ') + [None]
                 instruction = [None] + self.landmarks[i] + [None]
                 current_instruction = self.landmarks[i][index - 1][f'sub-instruction_{index}']
-                scene = get_scene(instruction=instruction[index], rgb=rgb, landmark=self.landmarks[i][index - 1]['landmark'], log_dir=log_dir)
+                scene = get_scene_with_suggestion(navigation_instructions=self.landmarks[i], current_instruction=current_instruction, rgb=rgb, landmark=self.landmarks[i][index - 1]['landmark'], log_dir=log_dir)
+                if step > 0: 
+                    next_instruction = self.landmarks[i][index]
+                    next_instruction = next_instruction[f'sub-instruction_{index + 1}'] if next_instruction is not None else None
+                    judge = self.planner.finished_judge(current_instruction, next_instruction, scene, log_dir=log_dir)
+                    if judge['instruction_status'] == 'completed':
+                        self.instruction_indexes[i] = index + 1
+                        print(f'Instruction {index} finished')
+                        index = index + 1
+                        if index + 1 == len(instruction):
+                            action = 0
+                            actions.append(action)
+                            continue
+                        current_instruction = self.landmarks[i][index - 1][f'sub-instruction_{index}']
                 if self.planner.model_name == DEEPSEEKR1_32B:
                     response = self.planner.plan(navigation_instructions=self.landmarks[i], scene_description=scene, index = index, current_instruction=current_instruction, log_dir=log_dir,step=step)
-                    thoughs, probabilities, action, finished = self.parser.parse_response(response, log_dir=log_dir)
+                    thoughs, probabilities, action = self.parser.parse_response(response, log_dir=log_dir)
                 else:
-                    thoughs, probabilities, action, finished = self.planner.plan_split(navigation_instructions=self.landmarks[i], current_instruction=current_instruction, scene_description=scene, log_dir=log_dir, step=step)
-            if finished:
-                self.instruction_indexes[i] = index + 1
-                print(f'Instruction {index} finished')
-                index = index + 1
-                if index + 1 == len(instruction):
-                    action = 0
-                elif action == 0:
-                    print(f'Wrong finished')
-                    current_instruction = self.landmarks[i][index - 1][f'sub-instruction_{index}']
-                    thoughs, probabilities, action, finished = self.planner.plan_split(navigation_instructions=self.landmarks[i], scene_description=scene, current_instruction=current_instruction, log_dir=log_dir, replan=True)
-                self.history_manager.clear()
+                    thoughs, probabilities, action = self.planner.plan_split(navigation_instructions=self.landmarks[i], current_instruction=current_instruction, scene_description=scene, log_dir=log_dir, step=step)
             # thoughs, plan, action = self.parser.parse_response(response, log_dir=log_dir)
             # self.history_manager.update_plan(plan)
             self.history_manager.update(action, scene, instructions=current_instruction, log_dir=log_dir)
