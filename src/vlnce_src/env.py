@@ -946,21 +946,10 @@ class AirVLNLLMENV:
         batch = []
 
         while True:
-            if self.index_data >= len(self.data)-1:
-                random.shuffle(self.data)
-                logger.warning('random shuffle data')
-                if self.dataset_group_by_scene:
-                    self.data = self._group_scenes()
-                    logger.warning('dataset grouped by scene')
-
-                if len(batch) == 0:
-                    self.index_data = 0
-                    self.batch = None
-                    return
-
-                self.index_data = self.batch_size - len(batch)
-                batch += self.data[:self.index_data]
-                break
+            if self.index_data > len(self.data)-1:
+                self.index_data = 0
+                self.batch = None
+                return
 
             new_episode = self.data[self.index_data]
 
@@ -991,6 +980,9 @@ class AirVLNLLMENV:
 
             if len(batch) == self.batch_size:
                 break
+        print(self.index_data)
+        print(len(self.data))
+        print(batch[0]['episode_id'])
 
         self.batch = copy.deepcopy(batch)
         assert len(self.batch) == self.batch_size, 'next_minibatch error'
@@ -1015,11 +1007,15 @@ class AirVLNLLMENV:
             if responses is None:
                 poses = self._get_current_pose()
                 self.reset_to_this_pose(poses)
-                time.sleep(3)
             else:
                 break
 
         time.sleep(3)
+
+        if (not args.ablate_rgb or not args.ablate_depth):
+            responses = self.simulator_tool.getImageResponses(get_rgb=not bool(args.ablate_rgb), get_depth=not bool(args.ablate_depth))
+        else:
+            responses = [[(None, None) for j in range(self.batch_size)] for i in range(len(self.machines_info))]
 
     def _changeEnv(self, need_change: bool = True):
         scene_id_list = [item['scene_id'] for item in self.batch]

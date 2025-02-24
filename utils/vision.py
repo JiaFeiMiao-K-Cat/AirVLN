@@ -484,6 +484,7 @@ class VisionClient():
             self.dino_client.detect(frame, prompt, save_path=save_path)
         else:
             return self.vlm_client.request(prompt, model_name=self.vlm_model, image=frame.image, save_path=save_path)
+            # return self.vlm_client.request_with_history(prompt, model_name=self.vlm_model, image=frame.image, save_path=save_path, history_id="scene_description")
     
     def get_obj_list(self) -> str:
         return self.vision.get_obj_list()

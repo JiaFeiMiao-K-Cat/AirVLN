@@ -36,7 +36,7 @@ from Model.utils.common import append_text_to_image, images_to_video
 from src.common.param import args
 from src.vlnce_src.env import AirVLNLLMENV
 from src.common.llm_wrapper import LLMWrapper, GPT3, GPT4, GPT4O, GPT4O_MINI, LLAMA3, RWKV, QWEN, INTERN, GEMMA2, DEEPSEEKR1_32B, DEEPSEEKR1_8B
-from src.common.vlm_wrapper import MINICPM, LLAMA3V, GPT4O_V, INTERN_VL
+from src.common.vlm_wrapper import MINICPM, LLAMA3V, GPT4O_V, INTERN_VL, QWEN_VL_7B
 from src.common.llm_agent import Agent
 
 def generate_video(
@@ -370,7 +370,7 @@ def _eval_checkpoint(
 
     if use_agent: 
         # trainer = Agent(detector=detector, parser=GPT4O_MINI, planner=args.EVAL_LLM, history=GPT4O_MINI, vlm_model=LLAMA3V)
-        trainer = Agent(detector=detector, parser=args.EVAL_LLM, planner=args.EVAL_LLM, history=args.EVAL_LLM, vlm_model=LLAMA3V, manual_mode=False)
+        trainer = Agent(detector=detector, parser=args.EVAL_LLM, planner=args.EVAL_LLM, history=args.EVAL_LLM, vlm_model=QWEN_VL_7B, manual_mode=False)
     else:
         trainer = LLMEvaluator(
             llm=args.EVAL_LLM,
@@ -392,8 +392,6 @@ def _eval_checkpoint(
         end_iter = len(train_env.data)
         cnt = 0
         for idx in range(start_iter, end_iter, train_env.batch_size):
-            
-
             if args.EVAL_NUM != -1 and cnt * train_env.batch_size >= args.EVAL_NUM:
                 break
             cnt += 1
@@ -402,7 +400,10 @@ def _eval_checkpoint(
             if train_env.batch is None:
                 logger.warning('train_env.batch is None, going to break and stop collect')
                 break
-            prev_actions = [[] for _ in range(train_env.batch_size)]
+            if isinstance(trainer, LLMEvaluator):
+                prev_actions = [[] for _ in range(train_env.batch_size)]
+            else:
+                prev_actions = [None for _ in range(train_env.batch_size)]
 
             rgb_frames = [[] for _ in range(train_env.batch_size)]
 
@@ -447,11 +448,12 @@ def _eval_checkpoint(
                     step=t,
                     log_dir=SAVE_IMAGE_LOG_FOLDER
                 )
-                max_length = 10
-                for i, action in enumerate(actions):
-                    prev_actions[i].append(action)
-                    if len(prev_actions[i]) > max_length:
-                        prev_actions[i].pop(0)
+                if isinstance(trainer, LLMEvaluator):
+                    max_length = 10
+                    for i, action in enumerate(actions):
+                        prev_actions[i].append(action)
+                        if len(prev_actions[i]) > max_length:
+                            prev_actions[i].pop(0)
 
                 # Make action and get the new state
                 # actions = [temp[0] for temp in actions.numpy()]

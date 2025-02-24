@@ -64,14 +64,21 @@ The JSON must include the following information:
   - "overall_scene_description": A string instructing the expert to provide a comprehensive description of the overall scene following the "required_information" properties in [Suggestion].
   - "objects": An array where each element is an object representing a key element in the scene. Each object should include the following properties:
     - "name": The unique identifier or name of the object.
-    - "category": The type of object (e.g., building, vehicle, vegetation, road).
     - "relative_horizontal_position": The object's horizontal position relative to the drone. Use one of these categories: "especially left", "left", "somewhat left", "aligned", "somewhat right", "right", "especially right".
     - "distance": The estimated distance from the drone (e.g. "16m").
-    - "status": The current state of the object relative to the drone (e.g., "founded", "approaching", "moving away", "being searched for", "not visible").
+    - "actions": What actions can the drone take to go to the object.
   - "additional_guidance": Any other informations needed following the "additional_guidance" properties in [Suggestion].
 
 **Note: If multiple objects share the same "name", differentiate them by appending a unique number to their name (e.g., "vehicle_1", "vehicle_2").**
 **Note: giving special priority to the areas specified by "focus_area" properties in [Suggestion]**
+**Valid Actions**:
+MOVE_FORWARD (5 meters)
+TURN_LEFT (45 degrees)
+TURN_RIGHT (45 degrees)
+GO_UP (2 meters)
+GO_DOWN (2 meters)
+MOVE_LEFT (5 meters)
+MOVE_RIGHT (5 meters)
 
 Your output must strictly be valid JSON without any additional commentary or explanation. Use the provided JSON input as guidance to generate your scene description.
 
@@ -198,7 +205,7 @@ Visual Memory: [
     }}
 ]
 
-Action: 2: TURN_LEFT (15 degrees)
+Action: 2: TURN_LEFT (45 degrees)
 
 ### OUTPUT
 
@@ -290,8 +297,8 @@ Action: {action}
 
 actions_description = """0: TASK_FINISH  
 1: MOVE_FORWARD (5 meters)
-2: TURN_LEFT (15 degrees)
-3: TURN_RIGHT (15 degrees)
+2: TURN_LEFT (45 degrees)
+3: TURN_RIGHT (45 degrees)
 4: GO_UP (2 meters)
 5: GO_DOWN (2 meters)
 6: MOVE_LEFT (5 meters)
@@ -320,7 +327,7 @@ class LLMParser():
         try:
             responses_raw = self.llm.request(llm_output, prompt.format(actions_description=actions_description), model_name=self.model_name)
             responses = re.findall(r"```json(?:\w+)?\n(.*?)```", responses_raw, re.DOTALL | re.IGNORECASE)
-            response = json.loads(responses[-1])
+            response = json5.loads(responses[-1])
             thoughs = response['thoughts']
             plan = response['plan']
             action = response['action']
@@ -469,8 +476,8 @@ You are an advanced multimodal perception system for a drone. Your task is to an
         try:
             responses_raw = self.llm.request(prompt, model_name=self.model_name)
             responses = re.findall(r"```json(?:\w+)?\n(.*?)```", responses_raw, re.DOTALL | re.IGNORECASE)
-            response = json.loads(responses[-1])
-            scene = re
+            response = json5.loads(responses[-1])
+            scene = response
             if log_dir is not None:
                 with open(os.path.join(log_dir, 'parse_observation.txt'), 'w+') as f:
                     f.write(self.model_name)
@@ -483,6 +490,7 @@ You are an advanced multimodal perception system for a drone. Your task is to an
             return scene
         except Exception as e:
             logger.error(f"Failed to parse response: {responses_raw}")
+            logger.error(f"{e}")
             return observation
     
 class LLMPlanner():
@@ -537,8 +545,8 @@ Now, based on the above INPUT, plan your next action at this time step.
 **Valid Actions** (0-7):
 0: TASK_FINISH
 1: MOVE_FORWARD (5 meters)
-2: TURN_LEFT (15 degrees)
-3: TURN_RIGHT (15 degrees)
+2: TURN_LEFT (45 degrees)
+3: TURN_RIGHT (45 degrees)
 4: GO_UP (2 meters)
 5: GO_DOWN (2 meters)
 6: MOVE_LEFT (5 meters)
@@ -560,8 +568,6 @@ Your output should include:
 
 [questions]: a string, questions you need help about current scene or instruction or planning.
 
-[instruction_finished]: a bool value, identify if the current instruction has been finished.
-
 #######
 
 Note!! The Format: Strictly output **JSON.**
@@ -581,7 +587,7 @@ A valid output EXAMPLE:
     "7(MOVE_RIGHT)": 0.1
   }},
   "selected_action": 3,
-  "execute_times": 6,
+  "execute_times": 2,
   "questions": "When the red building is aligned? How far is it from the drone?",
 }}
 ```
@@ -594,8 +600,8 @@ A valid output EXAMPLE:
     - Higher probability = stronger preference
     - Only if the Current Instruction is finished and it is the last instruction, can choose the TASK_FINISH action
 2. **Important Note**:
-    - When the instruction says **"turn right"** (or **"turn left"**) without a specified degree, it means a large turn, usually 90 degrees(about 6 times).
-    - When the instruction says **"turn around"** without a specified degree, it means a large turn, usually 180 degrees(about 12 times).
+    - When the instruction says **"turn right"** (or **"turn left"**) without a specified degree, it means a large turn, usually 90 degrees(about 2 times).
+    - When the instruction says **"turn around"** without a specified degree, it means a large turn, usually 180 degrees(about 4 times).
     - When the valid action in the list says **"TURN_RIGHT"** (or **"TURN_LEFT"**), it refers to a small 15-degree turn. Be sure to distinguish between these cases.
 
 ############
@@ -674,12 +680,8 @@ EXAMPLE:
   "history": {{
     "executed_actions": [
       "4: GO_UP (2 meters)",
-      "3: TURN_RIGHT (15 degrees)",
-      "3: TURN_RIGHT (15 degrees)",
-      "3: TURN_RIGHT (15 degrees)",
-      "3: TURN_RIGHT (15 degrees)",
-      "3: TURN_RIGHT (15 degrees)",
-      "3: TURN_RIGHT (15 degrees)"
+      "3: TURN_RIGHT (45 degrees)",
+      "3: TURN_RIGHT (45 degrees)",
     ]
   }}
 }}
@@ -1169,9 +1171,17 @@ You are an advanced multimodal perception system for a drone executing Vision-La
             instruction = instructions[i]
             rgb = rgbs[i]
             index = self.instruction_indexes[i]
+            prev_action = prev_actions[i]
+            if prev_action is not None and prev_action[1] > 1:
+                frame = Frame(rgb)
+                image_to_base64(frame.image, os.path.join(log_dir, f'{step}.jpg'))
+                action = prev_action[0]
+                actions.append(action)
+                prev_actions[i] = [action, prev_action[1] - 1]
+                continue
             if self.manual_mode:
                 frame = Frame(rgb)
-                image_to_base64(frame.image, os.path.join(log_dir, f'{i}.jpg'))
+                image_to_base64(frame.image, os.path.join(log_dir, f'{step}.jpg'))
                 instruction = [None] + instruction.split('. ') + [None]
                 action, finished = map(int, input('Enter action and finished: ').split())
                 finished = finished == 1
@@ -1186,6 +1196,10 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                     if finished:
                         f.write("\n---\n")
                         f.write(f"{instruction[index]} finished")
+                if action == 2 or action == 3:
+                    prev_actions[i] = [action, 3]
+                else:
+                    prev_actions[i] = [action, 1]
                 actions.append(action)
                 continue
             else: 
@@ -1211,6 +1225,10 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                     thoughs, probabilities, action = self.parser.parse_response(response, log_dir=log_dir)
                 else:
                     thoughs, probabilities, action = self.planner.plan_split(navigation_instructions=self.landmarks[i], current_instruction=current_instruction, scene_description=scene, log_dir=log_dir, step=step)
+                if action == 2 or action == 3:
+                    prev_actions[i] = [action, 3]
+                else:
+                    prev_actions[i] = [action, 1]
             # thoughs, plan, action = self.parser.parse_response(response, log_dir=log_dir)
             # self.history_manager.update_plan(plan)
             self.history_manager.update(action, scene, instructions=current_instruction, log_dir=log_dir)

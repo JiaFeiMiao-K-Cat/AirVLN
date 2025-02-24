@@ -14,6 +14,7 @@ GPT4O = "gpt-4o"
 LLAMA3 = "llama3.2:latest"
 RWKV = "rwkv"
 QWEN = "qwen2.5:7b-instruct-fp16"
+QWEN_2_5_72B = "qwen2.5-72b-instruct"
 INTERN = "internlm/internlm2.5:7b-chat-1m"
 GEMMA2 = "gemma2:9b-instruct-fp16"
 DEEPSEEKR1_8B = "deepseek-r1:8b-llama-distill-fp16"
@@ -21,6 +22,7 @@ DEEPSEEKR1_32B = "deepseek-r1:32b-qwen-distill-fp16"
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 chat_log_path = os.path.join(CURRENT_DIR, "chat_log.txt")
+chat_log_path_with_history = os.path.join(CURRENT_DIR, "chat_log_with_history.txt")
 openai_api_key = os.getenv("OPENAI_API_KEY", default="token-abc123")
 DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY", default="token-abc123")
 
@@ -43,6 +45,69 @@ class LLMWrapper:
             base_url='http://localhost:8000',
             api_key="token-abc123",
         )
+        self.history = {}
+    
+    def request_with_history(self, prompt, system_prompt=None, model_name=LLAMA3, history_id=None) -> str | Stream[ChatCompletion.ChatCompletionChunk]:
+        if model_name == RWKV:
+            client = self.rwkv_client
+        elif model_name == GPT4 or model_name == GPT4O_MINI or model_name == GPT3 or model_name == GPT4O:
+            client = self.gpt_client
+        elif model_name == QWEN_2_5_72B:
+            client = self.dashscope_client
+        else:
+            client = self.ollama_client
+        
+        
+        
+        history = self.history.get(history_id, [])
+
+        
+        # print(f"Requesting from {model_name}... use\n{prompt}")
+        if system_prompt is not None:
+            history.append({
+                "role": "system", 
+                "content": system_prompt
+            })
+            history.append({
+                "role": "user", 
+                "content": prompt
+            })
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=history,
+                temperature=self.temperature,
+                stream=False,
+            )
+        else:
+            history.append({
+                "role": "user", 
+                "content": prompt
+            })
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=history,
+                temperature=self.temperature,
+                stream=False,
+            )
+
+        response = client.chat.completions.create(
+            model=model_name,
+            messages=history,
+            temperature=self.temperature,
+            stream=False,
+        )
+
+        # save the message in a txt
+        with open(chat_log_path_with_history, "a") as f:
+            f.write(str(history) + "\n---\n")
+            f.write(response.model_dump_json(indent=2) + "\n---\n")
+        history.append(response.choices[0].message.model_dump())
+        self.history[history_id] = history
+
+        return response.choices[0].message.content
+
+    def clear_history(self, history_id):
+        self.history[history_id] = []
 
     # TODO: 实现filter
     def request(self, prompt, system_prompt=None, model_name=LLAMA3, stream=False, multi_sentence=False) -> str | Stream[ChatCompletion.ChatCompletionChunk]:
@@ -50,6 +115,8 @@ class LLMWrapper:
             client = self.rwkv_client
         elif model_name == GPT4 or model_name == GPT4O_MINI or model_name == GPT3 or model_name == GPT4O:
             client = self.gpt_client
+        elif model_name == QWEN_2_5_72B:
+            client = self.dashscope_client
         else:
             client = self.ollama_client
         
