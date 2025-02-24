@@ -14,6 +14,7 @@ import math
 import random
 import json
 import json5
+import json_repair
 import numpy as np
 from collections import defaultdict
 from pathlib import Path
@@ -257,7 +258,7 @@ Action: {action}
                 prompt = prompt.format(visual_memory=self.history, action=None, scene_description=observation, navigation_instructions=instructions)
             responses_raw = self.llm.request(prompt=prompt, model_name=self.model_name)
             responses = re.findall(r"```json(?:\w+)?\n(.*?)```", responses_raw, re.DOTALL | re.IGNORECASE)
-            response = json5.loads(responses[-1])
+            response = json_repair.loads(responses[-1])
             self.history = response['visual_memory']
         except Exception as e:
             logger.error(f"Failed to parse response: {responses_raw}")
@@ -327,7 +328,7 @@ class LLMParser():
         try:
             responses_raw = self.llm.request(llm_output, prompt.format(actions_description=actions_description), model_name=self.model_name)
             responses = re.findall(r"```json(?:\w+)?\n(.*?)```", responses_raw, re.DOTALL | re.IGNORECASE)
-            response = json5.loads(responses[-1])
+            response = json_repair.loads(responses[-1])
             thoughs = response['thoughts']
             plan = response['plan']
             action = response['action']
@@ -476,7 +477,7 @@ You are an advanced multimodal perception system for a drone. Your task is to an
         try:
             responses_raw = self.llm.request(prompt, model_name=self.model_name)
             responses = re.findall(r"```json(?:\w+)?\n(.*?)```", responses_raw, re.DOTALL | re.IGNORECASE)
-            response = json5.loads(responses[-1])
+            response = json_repair.loads(responses[-1])
             scene = response
             if log_dir is not None:
                 with open(os.path.join(log_dir, 'parse_observation.txt'), 'w+') as f:
@@ -742,7 +743,7 @@ EXAMPLE:
         responses_raw = self.llm.request(prompt, model_name=self.model_name)
         return responses_raw
         responses = re.findall(r"```json(?:\w+)?\n(.*?)```", responses_raw, re.DOTALL | re.IGNORECASE)
-        response = json.loads(responses[-1])
+        response = json_repair.loads(responses[-1])
         thoughs = response['thought']
         probabilities = response['probabilities']
         action = response['selected_action']
@@ -780,7 +781,7 @@ EXAMPLE:
         prompt = self.prompt.format(input=json.dumps(input))
         responses_raw = self.llm.request(prompt, model_name=self.model_name)
         responses = re.findall(r"```json(?:\w+)?\n(.*?)```", responses_raw, re.DOTALL | re.IGNORECASE)
-        response = json.loads(responses[-1])
+        response = json_repair.loads(responses[-1])
         thoughs = response['thought']
         probabilities = response['probabilities']
         action = response['selected_action']
@@ -867,7 +868,7 @@ Output:"""
                 f.write(response)
                 f.write("\n---\n")
                 f.write(landmarks[-1])
-        return json.loads(landmarks[-1])
+        return json_repair.loads(landmarks[-1])
     
     def finished_judge(self, current_instruction, next_instruction, scene, log_dir=None):
         prompt = """You are a drone navigation analysis expert. You are provided with the following inputs:
@@ -901,11 +902,11 @@ Current Scene Description: {scene}
         response = re.findall(r"```json(?:\w+)?\n(.*?)```", response_raw, re.DOTALL | re.IGNORECASE)
         if len(response) == 0:
             try: 
-                judge = json5.loads(response_raw)
+                judge = json_repair.loads(response_raw)
             except Exception as e:
                 judge = response_raw
         else:
-            judge = json5.loads(response[-1])
+            judge = json_repair.loads(response[-1])
         if log_dir is not None:
             with open(os.path.join(log_dir, 'judge.txt'), 'w+') as f:
                 f.write(self.model_name)
@@ -966,11 +967,11 @@ class Agent():
             response = re.findall(r"```json(?:\w+)?\n(.*?)```", response_raw, re.DOTALL | re.IGNORECASE)
             if len(response) == 0:
                 try: 
-                    suggestion = json5.loads(response_raw)
+                    suggestion = json_repair.loads(response_raw)
                 except Exception as e:
                     suggestion = response_raw
             else:
-                suggestion = json5.loads(response[-1])
+                suggestion = json_repair.loads(response[-1])
             if log_dir is not None:
                 with open(os.path.join(log_dir, 'suggestion.txt'), 'w+') as f:
                     f.write(self.planner.model_name)
@@ -989,11 +990,11 @@ class Agent():
             if len(observations) == 0:
                 observation = observation_raw
                 try:
-                    observation = json5.loads(observation)
+                    observation = json_repair.loads(observation)
                 except Exception as e:
                     observation = self.parser.parse_observation(observation, instructions=instruction, landmarks=landmark, log_dir=log_dir)
             else: 
-                observation = json5.loads(observations[-1])
+                observation = json_repair.loads(observations[-1])
             # scene = self.parser.parse_observation(observation, instructions=instruction, landmarks=landmark, log_dir=log_dir)
             if log_dir is not None:
                 with open(os.path.join(log_dir, 'scene.txt'), 'w+') as f:
@@ -1130,7 +1131,7 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                     observation = observation_raw
                     observation = self.parser.parse_observation(observation, instructions=instruction, landmarks=landmark, log_dir=log_dir)
                 else: 
-                    observation = json5.loads(observations[-1])
+                    observation = json_repair.loads(observations[-1])
             # scene = self.parser.parse_observation(observation, instructions=instruction, landmarks=landmark, log_dir=log_dir)
             if log_dir is not None and self.detector == 'vlm':
                 with open(os.path.join(log_dir, 'scene.txt'), 'w+') as f:

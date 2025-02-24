@@ -77,6 +77,8 @@ class VLMWrapper:
 
         # prompt = "tell me about this image"
 
+        history = self.history.get(history_id, [])
+
         if image is not None:
             self.image_id += 1
             if isinstance(image, Image.Image):
@@ -89,21 +91,25 @@ class VLMWrapper:
                     image = image_to_base64(cv2.imread(image), save_path=save_path)
                 else:
                     image = image_to_base64(cv2.imread(image))
-        
-        history = self.history.get(history_id, [])
 
-        history.append({
-            "role": "user", 
-            "content": [
-                {"type": "text", "text": prompt},
-                {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": image
+            history.append({
+                "role": "user", 
+                "content": [
+                    {"type": "text", "text": prompt},
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": image
+                        }
                     }
-                }
-            ]
-        })
+                ]
+            })
+
+        else:
+            history.append({
+                "role": "user", 
+                "content": prompt
+            })
 
         response = client.chat.completions.create(
             model=model_name,
@@ -116,11 +122,13 @@ class VLMWrapper:
         with open(chat_log_path_with_history, "a") as f:
             f.write(str(history) + "\n---\n")
             f.write(response.model_dump_json(indent=2) + "\n---\n")
-        
-        history.append(response.choices[0].message.model_dump())
-        self.history[history_id] = history
 
         return response.choices[0].message.content
+    
+    def update_history(self, history_id, content):
+        history = self.history.get(history_id, [])
+        history.append(content)
+        self.history[history_id] = history
 
     def clear_history(self, history_id):
         self.history[history_id] = []

@@ -101,10 +101,14 @@ class LLMWrapper:
         with open(chat_log_path_with_history, "a") as f:
             f.write(str(history) + "\n---\n")
             f.write(response.model_dump_json(indent=2) + "\n---\n")
-        history.append(response.choices[0].message.model_dump())
-        self.history[history_id] = history
-
         return response.choices[0].message.content
+    
+    def update_history(self, history_id, content):
+        history = self.history.get(history_id, [])
+        history.append(content)
+        if len(history) > 5:
+            history.pop(0)
+        self.history[history_id] = history
 
     def clear_history(self, history_id):
         self.history[history_id] = []
