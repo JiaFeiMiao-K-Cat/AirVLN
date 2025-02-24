@@ -959,6 +959,7 @@ class Agent():
         actions = []
         instructions = observations['instruction']
         rgbs = observations['rgb']
+        depths = observations['depth']
         def get_suggestion(navigation_instructions, current_instruction, log_dir=None):
             prompt = scene_prompt_preprocess.format(navigation_instructions=navigation_instructions, current_instruction=current_instruction)
             response_raw = self.planner.llm.request(prompt, model_name=self.planner.model_name)
@@ -1170,6 +1171,7 @@ You are an advanced multimodal perception system for a drone executing Vision-La
         for i in range(len(instructions)):
             instruction = instructions[i]
             rgb = rgbs[i]
+            depth = depths[i]
             index = self.instruction_indexes[i]
             prev_action = prev_actions[i]
             if prev_action is not None and prev_action[1] > 1:
@@ -1180,7 +1182,9 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                 prev_actions[i] = [action, prev_action[1] - 1]
                 continue
             if self.manual_mode:
+                depth = (depth*255).astype(np.uint8)
                 frame = Frame(rgb)
+                cv2.imwrite(os.path.join(log_dir, f'{step}_depth.png'), depth)
                 image_to_base64(frame.image, os.path.join(log_dir, f'{step}.jpg'))
                 instruction = [None] + instruction.split('. ') + [None]
                 action, finished = map(int, input('Enter action and finished: ').split())
