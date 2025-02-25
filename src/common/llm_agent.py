@@ -45,11 +45,9 @@ scene_prompt_preprocess = """You are an embodied drone that navigates in the rea
 
 The JSON must include the following information:
 - "required_information": An object containing:
-  - "overall_scene_description": A string instructing the expert to provide a comprehensive description of the overall scene with emphasis on environmental layout, obstacles, and significant spatial details.
   - "objects": A list (array) where each element is an object with the following properties:
       - "name": The name of object.
       - "focus_area": A string specifying which region of the image should receive special attention (for example, "upper left", "center", "lower right", etc.), guiding the expert on where to concentrate their analysis.
-  - "additional_guidance": A string instructing the expert to identify any obstacles or hazards present in the scene and to suggest potential navigation actions if applicable.
 
 Your output must be strictly in JSON format, without any additional commentary or explanation.
 
@@ -77,8 +75,6 @@ TURN_LEFT (45 degrees)
 TURN_RIGHT (45 degrees)
 GO_UP (2 meters)
 GO_DOWN (2 meters)
-MOVE_LEFT (5 meters)
-MOVE_RIGHT (5 meters)
 
 Your output must strictly be valid JSON without any additional commentary or explanation. 
 
@@ -128,8 +124,6 @@ TURN_LEFT (45 degrees)
 TURN_RIGHT (45 degrees)
 GO_UP (2 meters)
 GO_DOWN (2 meters)
-MOVE_LEFT (5 meters)
-MOVE_RIGHT (5 meters)
 
 Your output must strictly be valid JSON without any additional commentary or explanation. 
 
@@ -213,9 +207,7 @@ MOVE_FORWARD (5 meters)
 TURN_LEFT (45 degrees)
 TURN_RIGHT (45 degrees)
 GO_UP (2 meters)
-GO_DOWN (2 meters)
-MOVE_LEFT (5 meters)
-MOVE_RIGHT (5 meters)"""
+GO_DOWN (2 meters)"""
 
 class LLMParser():
     def __init__(self, model_name=GPT4O_MINI, detector='dino'):
@@ -455,15 +447,13 @@ Now, based on the above INPUT, plan your next action at this time step.
 
 ******* IMPORTANT ********:
 
-**Valid Actions** (0-7):
+**Valid Actions** (0-5):
 0: TASK_FINISH
 1: MOVE_FORWARD (5 meters)
 2: TURN_LEFT (45 degrees)
 3: TURN_RIGHT (45 degrees)
 4: GO_UP (2 meters)
 5: GO_DOWN (2 meters)
-6: MOVE_LEFT (5 meters)
-7: MOVE_RIGHT (5 meters)
 
 ***********************
 
@@ -473,7 +463,7 @@ Your output should include:
 
 [thought]: tell us why you choose this action, e.g. you can analyze the association between the current scene and the current instruction, consider the whole instruction list and history, etc.
 
-[probabilities]: assign a probability distribution over the valid action list (0-7).
+[probabilities]: assign a probability distribution over the valid action list (0-5).
 
 [selected_action]: Explicitly select the action with highest probability.
 
@@ -493,11 +483,9 @@ A valid output EXAMPLE:
     "0(TASK_FINISH)": 0.0,
     "1(MOVE_FORWARD)": 0.1,
     "2(TURN_LEFT)": 0.0,
-    "3(TURN_RIGHT)": 0.0,
+    "3(TURN_RIGHT)": 0.1,
     "4(GO_UP)": 0.8,
-    "5(GO_DOWN)": 0.0,
-    "6(MOVE_LEFT)": 0.0,
-    "7(MOVE_RIGHT)": 0.1
+    "5(GO_DOWN)": 0.0
   }},
   "selected_action": 3,
   "execute_times": 2,
@@ -516,6 +504,8 @@ A valid output EXAMPLE:
     - When the instruction says **"turn right"** (or **"turn left"**) without a specified degree, it means a large turn, usually 90 degrees(about 2 times).
     - When the instruction says **"turn around"** without a specified degree, it means a large turn, usually 180 degrees(about 4 times).
     - When the valid action in the list says **"TURN_RIGHT"** (or **"TURN_LEFT"**), it refers to a small 15-degree turn. Be sure to distinguish between these cases.
+    - Do not skip any keypoint mentioned in the instruction.
+    - One step may not be enough to finish an action. You can repeat the previous action if necessary.
 
 ############
 
@@ -542,52 +532,44 @@ EXAMPLE:
   "current_instruction": "turn right and go down the road.",
   "current_scene":   {{
     "scene": {{
-      "overall_scene_description": "The scene depicts a park with a road running through it, featuring trees and benches along the sides. The environment is characterized by a mix of open spaces and dense vegetation, with several obstacles present in the form of parked vehicles and pedestrians.",
       "objects": [
         {{
           "name": "park",
-          "category": "vegetation",
-          "relative_horizontal_position": "center",
+          "position": "center",
           "distance": "50m",
           "status": "founded"
         }},
         {{
           "name": "road",
-          "category": "road",
-          "relative_horizontal_position": "left",
+          "position": "left",
           "distance": "20m",
           "status": "approaching"
         }},
         {{
           "name": "park benches_1",
-          "category": "furniture",
-          "relative_horizontal_position": "lower right",
+          "position": "lower right",
           "distance": "10m",
           "status": "being searched for"
         }},
         {{
           "name": "trees_1",
-          "category": "vegetation",
-          "relative_horizontal_position": "somewhat left",
+          "position": "somewhat left",
           "distance": "30m",
           "status": "founded"
         }},
         {{
           "name": "vehicles_1",
-          "category": "vehicle",
-          "relative_horizontal_position": "especially right",
+          "position": "especially right",
           "distance": "15m",
           "status": "moving away"
         }},
         {{
           "name": "pedestrians_1",
-          "category": "person",
-          "relative_horizontal_position": "somewhat left",
+          "position": "somewhat left",
           "distance": "25m",
           "status": "not visible"
         }}
-      ],
-      "additional_guidance": "The scene presents several obstacles, including parked vehicles and pedestrians. To navigate safely, it is recommended to proceed with caution and avoid any potential hazards."
+      ]
     }}
   }},
   "history": {{
@@ -610,9 +592,7 @@ EXAMPLE:
     "2": 0.8,
     "3": 0.0,
     "4": 0.0,
-    "5": 0.0,
-    "6": 0.0,
-    "7": 0.1
+    "5": 0.1
   }},
   "selected_action": 2,
   "execute_times": 1,
@@ -676,7 +656,7 @@ EXAMPLE:
                 f.write(str(action))
         return thoughs, probabilities, action
     
-    def plan_split(self, navigation_instructions, scene_description, current_instruction, log_dir=None, replan:bool=False, step=0):
+    def plan_split(self, navigation_instructions, scene_description, current_instruction, attention_forward = False, log_dir=None, replan:bool=False, step=0):
         # history, plan = self.history_manager.get()
         # previous_instruction = navigation_instructions[index - 1]
         # current_instruction = navigation_instructions[index]
@@ -690,6 +670,8 @@ EXAMPLE:
         input['current_instruction'] = current_instruction
         input['current_scene'] = scene_description
         input['history'] = history
+        if attention_forward:
+            input['additional_guidance'] = "MOVE_FORWARD may collide with the object in the scene, Try to turn direction or change altitude."
         prompt = self.prompt.format(input=json.dumps(input))
         responses_raw = self.llm.request(prompt, model_name=self.model_name)
         responses = re.findall(r"```json(?:\w+)?\n(.*?)```", responses_raw, re.DOTALL | re.IGNORECASE)
@@ -808,8 +790,8 @@ Current Instruction: {current_instruction}
 Next Instruction: {next_instruction}
 Action History: {action_history}
 Current Scene Description: {scene}
-"""
-        prompt = prompt.format(current_instruction=current_instruction, next_instruction=next_instruction, action_history=self.history_manager.get_actions(), scene=scene)
+Visual Memory: {visual_memory}"""
+        prompt = prompt.format(current_instruction=current_instruction, next_instruction=next_instruction, action_history=self.history_manager.get_actions(), scene=scene, visual_memory=self.history_manager.get_memory())
         response_raw = self.llm.request(prompt, model_name=self.model_name)
         response = re.findall(r"```json(?:\w+)?\n(.*?)```", response_raw, re.DOTALL | re.IGNORECASE)
         if len(response) == 0:
@@ -1081,7 +1063,7 @@ You are an advanced multimodal perception system for a drone executing Vision-La
         #         self.history_manager.update_plan(plan)
         #         self.history_manager.update(action, scene, instructions=instruction)
         #         actions.append(action)
-        def check_collision(depth_img, action, img_width=640, img_height=480, drone_width=0.20, drone_height=0.05, fov=90, distance=6.0):
+        def check_collision(depth_img, action, img_width=640, img_height=480, drone_width=1.0, drone_height=0.1, fov=90, distance=6.0):
             # print(depth_img.shape) # (480, 640, 1)
             pixel_angle = fov / img_width
             center_x = img_width // 2
@@ -1109,15 +1091,18 @@ You are an advanced multimodal perception system for a drone executing Vision-La
             index = self.instruction_indexes[i]
             prev_action = prev_actions[i]
             if prev_action is not None and prev_action[1] > 1:
-                frame = Frame(rgb)
-                image_to_base64(frame.image, os.path.join(log_dir, f'{step}.jpg'))
+                if log_dir is not None: 
+                    frame = Frame(rgb)
+                    image_to_base64(frame.image, os.path.join(log_dir, f'{step}.jpg'))
+                    depth_unit8 = (depth*255).astype(np.uint8)
+                    cv2.imwrite(os.path.join(log_dir, f'{step}_depth.png'), depth_unit8)
                 action = prev_action[0]
                 actions.append(action)
                 prev_actions[i] = [action, prev_action[1] - 1]
                 continue
             if self.manual_mode:
-                depth_unit8 = (depth*255).astype(np.uint8)
                 frame = Frame(rgb)
+                depth_unit8 = (depth*255).astype(np.uint8)
                 cv2.imwrite(os.path.join(log_dir, f'{step}_depth.png'), depth_unit8)
                 image_to_base64(frame.image, os.path.join(log_dir, f'{step}.jpg'))
                 if check_collision(depth * 100, 1):
@@ -1143,6 +1128,9 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                 actions.append(action)
                 continue
             else: 
+                if log_dir is not None: 
+                    depth_unit8 = (depth*255).astype(np.uint8)
+                    cv2.imwrite(os.path.join(log_dir, f'{step}_depth.png'), depth_unit8)
                 # instruction = [None] + instruction.split('. ') + [None]
                 instruction = [None] + self.landmarks[i] + [None]
                 current_instruction = self.landmarks[i][index - 1][f'sub-instruction_{index}']
@@ -1160,11 +1148,14 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                             actions.append(action)
                             continue
                         current_instruction = self.landmarks[i][index - 1][f'sub-instruction_{index}']
+                attention_forward = False
+                if check_collision(depth * 100, 1):
+                    attention_forward = True
                 if self.planner.model_name == DEEPSEEKR1_32B:
                     response = self.planner.plan(navigation_instructions=self.landmarks[i], scene_description=scene, index = index, current_instruction=current_instruction, log_dir=log_dir,step=step)
                     thoughs, probabilities, action = self.parser.parse_response(response, log_dir=log_dir)
                 else:
-                    thoughs, probabilities, action = self.planner.plan_split(navigation_instructions=self.landmarks[i], current_instruction=current_instruction, scene_description=scene, log_dir=log_dir, step=step)
+                    thoughs, probabilities, action = self.planner.plan_split(navigation_instructions=self.landmarks[i], current_instruction=current_instruction, scene_description=scene, attention_forward=attention_forward, log_dir=log_dir, step=step)
                 if action == 2 or action == 3:
                     prev_actions[i] = [action, 3]
                 else:
