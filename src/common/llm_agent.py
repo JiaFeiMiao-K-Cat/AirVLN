@@ -1081,6 +1081,27 @@ You are an advanced multimodal perception system for a drone executing Vision-La
         #         self.history_manager.update_plan(plan)
         #         self.history_manager.update(action, scene, instructions=instruction)
         #         actions.append(action)
+        def check_collision(depth_img, action, img_width=640, img_height=480, drone_width=0.20, drone_height=0.05, fov=90, distance=6.0):
+            # print(depth_img.shape) # (480, 640, 1)
+            pixel_angle = fov / img_width
+            center_x = img_width // 2
+            center_y = img_height // 2
+            if action == 1:
+                half_angle_x = np.arctan(drone_width / (2 * distance)) * (180 / np.pi)
+                half_angle_y = np.arctan(drone_height / (2 * distance)) * (180 / np.pi)
+                half_width = math.ceil(half_angle_x / pixel_angle)
+                half_height = math.ceil(half_angle_y / pixel_angle)
+                for dx in range(-half_width, half_width):
+                    for dy in range(-half_height, half_height):
+                        x = center_x + dx
+                        y = center_y + dy
+                        if x < 0 or x >= img_width or y < 0 or y >= img_height:
+                            continue
+                        if depth_img[y, x] < distance:
+                            return True
+                return False
+            else:
+                return False
         for i in range(len(instructions)):
             instruction = instructions[i]
             rgb = rgbs[i]
@@ -1095,10 +1116,12 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                 prev_actions[i] = [action, prev_action[1] - 1]
                 continue
             if self.manual_mode:
-                depth = (depth*255).astype(np.uint8)
+                depth_unit8 = (depth*255).astype(np.uint8)
                 frame = Frame(rgb)
-                cv2.imwrite(os.path.join(log_dir, f'{step}_depth.png'), depth)
+                cv2.imwrite(os.path.join(log_dir, f'{step}_depth.png'), depth_unit8)
                 image_to_base64(frame.image, os.path.join(log_dir, f'{step}.jpg'))
+                if check_collision(depth * 100, 1):
+                    print('Collision Dangeroous')
                 instruction = [None] + instruction.split('. ') + [None]
                 action, finished = map(int, input('Enter action and finished: ').split())
                 finished = finished == 1
