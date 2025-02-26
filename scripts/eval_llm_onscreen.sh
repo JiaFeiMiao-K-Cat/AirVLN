@@ -16,7 +16,7 @@ python -u ./src/vlnce_src/eval_llm.py \
 --Image_Height_RGB 360 \
 --Image_Width_DEPTH 640 \
 --Image_Height_DEPTH 360 \
---maxAction 300
+--maxAction 50
 
 
 # python -u ./src/vlnce_src/train.py \

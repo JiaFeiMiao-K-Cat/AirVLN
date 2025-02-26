@@ -51,21 +51,14 @@ The JSON must include the following information:
 
 Your output must be strictly in JSON format, without any additional commentary or explanation.
 
-Instruction: {navigation_instructions}
-
-Current Instruction: {current_instruction}"""
+Current Instruction: {current_instruction}
+Next Instruction: {next_instruction}"""
 
 scene_prompt_activate = """[ROLE]  
 You are an advanced multimodal perception system for a drone executing Vision-Language Navigation (VLN). Your task is to analyze first-person view RGB-D imagery and generate mission-aware environmental semantics for the given [Instruction].
 
 The JSON must include the following information:
-- "scene": An object containing:
-  - "objects": An array where each element is an object representing a key element in the scene. Each object should include the following properties:
-    - "name": The unique identifier or name of the object.
-    - "position": The object's horizontal position relative to the drone. Use one of these categories: "especially left", "left", "somewhat left", "center", "somewhat right", "right", "especially right".
-    - "collide_risk": The risk of collision with the object, ranging from 0 to 1.
-    - "bbox_2d": The bounding box [x1, y1, x2, y2] normalized to [0,1].
-    - "actions": What actions can the drone take to go to the object.
+- "scene": Describe the scene according to the image input, including its category, its object(including their relative position to you) in the form of "This is a scene of .."
 
 **Note: If multiple objects share the same "name", differentiate them by appending a unique number to their name (e.g., "vehicle_1", "vehicle_2").**
 **Note: Only VISIBLE objects should be included in the output.**
@@ -455,11 +448,13 @@ the input for you includes:
 
 ### INPUT
 
-[whole instruction list]
-
 [current instruction]
 
-[history]: including [Executed actions] and [Visual memory]
+[next instruction]
+
+[Additional Guidance]: if there is any special attention to avoid collisions.
+
+[history]
 
 [current scene]
 
@@ -525,8 +520,7 @@ A valid output EXAMPLE:
 2. **Important Note**:
     - When the instruction says **"turn right"** (or **"turn left"**) without a specified degree, it means a large turn, usually 90 degrees(about 2 times).
     - When the instruction says **"turn around"** without a specified degree, it means a large turn, usually 180 degrees(about 4 times).
-    - When the valid action in the list says **"TURN_RIGHT"** (or **"TURN_LEFT"**), it refers to a small 15-degree turn. Be sure to distinguish between these cases.
-    - The distances of objects in the scene are inaccurate estimates. Use them as a reference only.
+    - If the additional guidance says some actions will collide with objects, you must select other safe action to avoid collision.
     - Do not skip any keypoint mentioned in the instruction.
     - One step may not be enough to finish an action. You can repeat the previous action if necessary.
 
@@ -586,7 +580,7 @@ A valid output EXAMPLE:
                 f.write(str(action))
         return thoughs, probabilities, action
     
-    def plan_split(self, navigation_instructions, scene_description, current_instruction, attention_forward = False, log_dir=None, replan:bool=False, step=0):
+    def plan_split(self, scene_description, current_instruction, next_instruction, attention, log_dir=None, replan:bool=False, step=0):
         # history, plan = self.history_manager.get()
         # previous_instruction = navigation_instructions[index - 1]
         # current_instruction = navigation_instructions[index]
@@ -597,13 +591,13 @@ A valid output EXAMPLE:
         history = self.history_manager.get_tuple(2)
         input = {}
         # input['current_time_step'] = f'step {step}'
-        input['whole_instruction_list'] = navigation_instructions
+        # input['whole_instruction_list'] = navigation_instructions
         input['current_instruction'] = current_instruction
-        input['current_scene'] = scene_description
+        input['next_instruction'] = next_instruction
         input['history'] = history
         input['history_actions'] = self.history_manager.get_actions()
-        if attention_forward:
-            input['additional_guidance'] = "MOVE_FORWARD will collide with the object in the scene, try to change direction or altitude."
+        input['current_scene'] = scene_description
+        input['additional_guidance'] = attention
         prompt = self.prompt.format(input=json.dumps(input))
         responses_raw = self.llm.request(prompt, model_name=self.model_name)
         responses = re.findall(r"```json(?:\w+)?\n(.*?)```", responses_raw, re.DOTALL | re.IGNORECASE)
@@ -698,16 +692,18 @@ Output:"""
                 f.write(landmarks[-1])
         return json_repair.loads(landmarks[-1])
     
-    def finished_judge(self, current_instruction, next_instruction, scene, log_dir=None):
+    def finished_judge(self, current_instruction, next_instruction, scene, guidance, log_dir=None):
         prompt = """You are a drone navigation analysis expert. You are provided with the following inputs:
 1. **Current Instruction**: The command that is currently being executed.
 2. **Next Instruction**: The subsequent command that will be executed.
 3. **Action History**: A list of actions that have been performed so far.
-4. **Current Scene Description**: A detailed description of the current scene.
+4. **History**: Including the history observations, thoughts, actions and keyposes.
+5. **Current Scene Description**: A detailed description of the current scene.
+6. **Additional Guidance**: Tips for avoiding collisions in the current scene.
 
 Your task is to determine whether the current instruction has been fully completed, partially completed, or not completed at all. To make this judgment, analyze the inputs as follows:
-- Evaluate if the actions taken (from the action history) align with the directives in the current instruction.
-- Consider the current scene description to verify if the expected outcomes of the current instruction are visible.
+- Consider the current scene description to verify if the expected outcomes of the current instruction or the start of the next instruction are visible.
+- Consider the additional guidance to verify surrounding obstacles. 
 - Use the next instruction as a clue to see if it implies a transition from the current instruction.
 - Summarize relevant evidence from the inputs to support your conclusion.
 
@@ -723,9 +719,10 @@ Your output must be strictly in JSON codeblock with no additional commentary or 
 Current Instruction: {current_instruction}
 Next Instruction: {next_instruction}
 Action History: {action_history}
+History: {history}
 Current Scene Description: {scene}
-Visual Memory: {visual_memory}"""
-        prompt = prompt.format(current_instruction=current_instruction, next_instruction=next_instruction, action_history=self.history_manager.get_actions(), scene=scene, visual_memory=self.history_manager.get_memory())
+Aditional Guidance: {guidance}"""
+        prompt = prompt.format(current_instruction=current_instruction, next_instruction=next_instruction, action_history=self.history_manager.get_actions(), scene=scene, history=self.history_manager.get_tuple(), guidance=guidance)
         response_raw = self.llm.request(prompt, model_name=self.model_name)
         response = re.findall(r"```json(?:\w+)?\n(.*?)```", response_raw, re.DOTALL | re.IGNORECASE)
         if len(response) == 0:
@@ -789,8 +786,8 @@ class Agent():
         instructions = observations['instruction']
         rgbs = observations['rgb']
         depths = observations['depth']
-        def get_suggestion(navigation_instructions, current_instruction, log_dir=None):
-            prompt = scene_prompt_preprocess.format(navigation_instructions=navigation_instructions, current_instruction=current_instruction)
+        def get_suggestion(current_instruction, next_instruction, reget=False, log_dir=None):
+            prompt = scene_prompt_preprocess.format(current_instruction=current_instruction, next_instruction=next_instruction)
             response_raw = self.planner.llm.request(prompt, model_name=self.planner.model_name)
             response = re.findall(r"```json(?:\w+)?\n(.*?)```", response_raw, re.DOTALL | re.IGNORECASE)
             if len(response) == 0:
@@ -801,7 +798,8 @@ class Agent():
             else:
                 suggestion = json_repair.loads(response[-1])
             if log_dir is not None:
-                with open(os.path.join(log_dir, 'suggestion.txt'), 'w+') as f:
+                file_name = "suggestion.txt" if not reget else "suggestion_reget.txt"
+                with open(os.path.join(log_dir, file_name), 'w+') as f:
                     f.write(self.planner.model_name)
                     f.write("\n---\n")
                     f.write(prompt)
@@ -810,8 +808,8 @@ class Agent():
                     f.write("\n---\n")
                     f.write(str(suggestion))
             return suggestion
-        def get_scene_with_suggestion(navigation_instructions, current_instruction, rgb, landmark, log_dir=None):
-            suggestion = get_suggestion(navigation_instructions, current_instruction, log_dir)
+        def get_scene_with_suggestion(current_instruction, next_instruction, rgb, landmark, reget=False, log_dir=None):
+            suggestion = get_suggestion(current_instruction, next_instruction, reget=reget, log_dir=log_dir)
             prompt = scene_prompt_activate.format(navigation_instructions=current_instruction, suggestion=suggestion)
             observation_raw = self.vision.detect_capture(frame=rgb, prompt=prompt, save_path=img_path)
             observations = re.findall(r"```json(?:\w+)?\n(.*?)```", observation_raw, re.DOTALL | re.IGNORECASE)
@@ -819,13 +817,16 @@ class Agent():
                 observation = observation_raw
                 try:
                     observation = json_repair.loads(observation)
+                    observation = observation['scene']
                 except Exception as e:
                     observation = self.parser.parse_observation(observation, instructions=instruction, landmarks=landmark, log_dir=log_dir)
             else: 
                 observation = json_repair.loads(observations[-1])
+                observation = observation['scene']
             # scene = self.parser.parse_observation(observation, instructions=instruction, landmarks=landmark, log_dir=log_dir)
             if log_dir is not None:
-                with open(os.path.join(log_dir, 'scene.txt'), 'w+') as f:
+                file_name = "scene.txt" if not reget else "scene_reget.txt"
+                with open(os.path.join(log_dir, file_name), 'w+') as f:
                     f.write(self.vlm_model)
                     f.write("\n---\n")
                     f.write(prompt)
@@ -1016,6 +1017,30 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                         if depth_img[y, x] < distance:
                             return True
                 return False
+            elif action == 4:
+                height_map = np.zeros_like(depth_img)
+                for y in range(img_height):
+                    angle_y_tan = np.tan(abs(y - center_y) * pixel_angle * (np.pi / 180))
+                    height_map[y] = angle_y_tan * depth_img[y]
+                half_angle_x = np.arctan(drone_width / (2 * distance)) * (180 / np.pi)
+                half_angle_y = np.arctan(drone_height / (2 * distance)) * (180 / np.pi)
+                half_width = math.ceil(half_angle_x / pixel_angle)
+                half_width = 10
+                height = math.ceil(img_height * 0.05)
+                gradient_y = np.gradient(height_map, axis=0)
+                # depth_gradient_y = np.gradient(depth_img, axis=0)
+                gradient_threshold = 0.01
+                for dx in range(-half_width, half_width):
+                    x = center_x + dx
+                    for dy in range(0, height):
+                        y = img_height + dy
+                        if x < 0 or x >= img_width or y < 0 or y >= img_height:
+                            continue
+                        gradient = abs(gradient_y[y, x])
+                        # print(f"[{x}, {y}], depth: {depth_img[y, x]}, height: {height_map[y, x]}, gradient_height: {gradient_y[y, x]}, gradient_depth: {depth_gradient_y[y, x]}")
+                        if height_map[y, x] < distance and gradient <= gradient_threshold:
+                            return True
+                return False
             elif action == 5:
                 height_map = np.zeros_like(depth_img)
                 for y in range(img_height):
@@ -1065,6 +1090,8 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                 image_to_base64(frame.image, os.path.join(log_dir, f'{step}.jpg'))
                 if check_collision(depth * 100, 1):
                     print('MOVE_FORWARD Collision Dangeroous')
+                if check_collision(depth * 100, 4, distance=2.1):
+                    print('GO_UP Collision Dangeroous')
                 if check_collision(depth * 100, 5, distance=2.1):
                     print('GO_DOWN Collision Dangeroous')
                 instruction = [None] + instruction.split('. ') + [None]
@@ -1094,11 +1121,25 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                 # instruction = [None] + instruction.split('. ') + [None]
                 instruction = [None] + self.landmarks[i] + [None]
                 current_instruction = self.landmarks[i][index - 1][f'sub-instruction_{index}']
-                scene = get_scene_with_suggestion(navigation_instructions=self.landmarks[i], current_instruction=current_instruction, rgb=rgb, landmark=self.landmarks[i][index - 1]['landmark'], log_dir=log_dir)
+                scene = get_scene_with_suggestion(current_instruction=current_instruction, next_instruction=self.landmarks[i][index], rgb=rgb, landmark=self.landmarks[i][index - 1]['landmark'], log_dir=log_dir)
+                attention = ""
+                if check_collision(depth * 100, 1):
+                    attention += "MOVE_FORWARD will collide with objects. "
+                else:
+                    attention += "MOVE_FORWARD is safe. "
+                if check_collision(depth * 100, 4, distance=2.1):
+                    attention += "GO_UP will collide with objects. "
+                else:
+                    attention += "GO_UP is safe. "
+                if check_collision(depth * 100, 5, distance=2.1):
+                    attention += "GO_DOWN will collide with objects. "
+                else:
+                    attention += "GO_DOWN is safe. "
+                attention += "TURN_LEFT and TURN_RIGHT are safe. "
                 if step > 0: 
                     next_instruction = self.landmarks[i][index]
                     next_instruction = next_instruction[f'sub-instruction_{index + 1}'] if next_instruction is not None else None
-                    judge = self.planner.finished_judge(current_instruction, next_instruction, scene, log_dir=log_dir)
+                    judge = self.planner.finished_judge(current_instruction, next_instruction, scene, guidance=attention, log_dir=log_dir)
                     if judge['instruction_status'] == 'completed':
                         self.instruction_indexes[i] = index + 1
                         print(f'Instruction {index} finished')
@@ -1108,14 +1149,13 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                             actions.append(action)
                             continue
                         current_instruction = self.landmarks[i][index - 1][f'sub-instruction_{index}']
-                attention_forward = False
-                if check_collision(depth * 100, 1):
-                    attention_forward = True
+                        scene = get_scene_with_suggestion(current_instruction=current_instruction, next_instruction=self.landmarks[i][index], rgb=rgb, landmark=self.landmarks[i][index - 1]['landmark'], reget=True, log_dir=log_dir)
                 if self.planner.model_name == DEEPSEEKR1_32B:
                     response = self.planner.plan(navigation_instructions=self.landmarks[i], scene_description=scene, index = index, current_instruction=current_instruction, log_dir=log_dir,step=step)
                     thoughs, probabilities, action = self.parser.parse_response(response, log_dir=log_dir)
                 else:
-                    thoughs, keypose, action = self.planner.plan_split(navigation_instructions=self.landmarks[i], current_instruction=current_instruction, scene_description=scene, attention_forward=attention_forward, log_dir=log_dir, step=step)
+                    next_instruction = self.landmarks[i][index]
+                    thoughs, keypose, action = self.planner.plan_split(current_instruction=current_instruction, next_instruction=next_instruction, scene_description=scene, attention=attention, log_dir=log_dir, step=step)
                 if action == 2 or action == 3:
                     prev_actions[i] = [action, 3]
                 else:
