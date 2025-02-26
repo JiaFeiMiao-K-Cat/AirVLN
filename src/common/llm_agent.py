@@ -63,11 +63,12 @@ The JSON must include the following information:
   - "objects": An array where each element is an object representing a key element in the scene. Each object should include the following properties:
     - "name": The unique identifier or name of the object.
     - "position": The object's horizontal position relative to the drone. Use one of these categories: "especially left", "left", "somewhat left", "center", "somewhat right", "right", "especially right".
-    - "distance": The estimated distance from the drone (e.g. "16m").
-    - "bbox_2d": The bounding box [x1, y1, x2, y2] normalized to [0,1]
+    - "collide_risk": The risk of collision with the object, ranging from 0 to 1.
+    - "bbox_2d": The bounding box [x1, y1, x2, y2] normalized to [0,1].
     - "actions": What actions can the drone take to go to the object.
 
 **Note: If multiple objects share the same "name", differentiate them by appending a unique number to their name (e.g., "vehicle_1", "vehicle_2").**
+**Note: Only VISIBLE objects should be included in the output.**
 **Note: giving special priority to the areas specified by "focus_area" properties in [Suggestion]**
 **Valid Actions**:
 MOVE_FORWARD (5 meters)
@@ -88,7 +89,8 @@ class HistoryManager():
         self.model_name = model_name
         self.history_actions = []
         self.history_observations = []
-        self.history_thoughts = None
+        self.history_thoughts = []
+        self.history_keyposes = []
         self.history = None
         self.history_raw = None
         self.llm = LLMWrapper()
@@ -181,6 +183,28 @@ Executed Action: {action}"""
         # history['previous_thoughts'] = self.history_thoughts
         history['visual_memory'] = self.history
         return history, self.plan
+    
+    def add_tuple(self, thought, observation, action, keypose):
+        actions = actions_description.split('\n')
+        self.history_thoughts.append(thought)
+        self.history_observations.append(observation)
+        self.history_actions.append(actions[action])
+        self.history_keyposes.append(keypose)
+    
+    def get_tuple(self, length=3):
+        history = []
+        thoughts = self.history_thoughts[-length:]
+        observations = self.history_observations[-length:]
+        actions = self.history_actions[-length:]
+        keyposes = self.history_keyposes[-length:]
+        for thought, observation, action, keypose in zip(thoughts, observations, actions, keyposes):
+            history.append({
+                "thought": thought,
+                "observation": observation,
+                "action": action,
+                "keypose": keypose
+            })
+        return history
 
     def get_memory(self):
         return self.history
@@ -197,6 +221,8 @@ Executed Action: {action}"""
     def clear(self):
         self.history_actions = []
         self.history_observations = []
+        self.history_thoughts = []
+        self.history_keyposes = []
         self.history_raw = None
         self.history = None
         self.plan = None
@@ -425,21 +451,17 @@ class LLMPlanner():
         self.prompt = """[General Task Description]
 You are an embodied drone that navigates in the real world. You need to explore between some places marked and ultimately find the destination to stop. To finish the task, you need to follow the navigation instructions.
 
-Now you are at a certain time step [step t],
-
 the input for you includes:
 
 ### INPUT
-
-current time step: step t
 
 [whole instruction list]
 
 [current instruction]
 
-[current scene]
-
 [history]: including [Executed actions] and [Visual memory]
+
+[current scene]
 
 ######
 
@@ -469,7 +491,7 @@ Your output should include:
 
 [execute_times]: How many times does the selected action should be executed.
 
-[questions]: a string, questions you need help about current scene or instruction or planning.
+[keypose]: Mention which sub-action in the instruction are you operating, and do you need another step to finish the sub-action.
 
 #######
 
@@ -489,7 +511,7 @@ A valid output EXAMPLE:
   }},
   "selected_action": 3,
   "execute_times": 2,
-  "questions": "When the red building is aligned? How far is it from the drone?",
+  "keypose": "I am executing the sub-action of turning right as per the initial part of the instruction.",
 }}
 ```
 #############
@@ -497,108 +519,16 @@ A valid output EXAMPLE:
 [More Constraints]
 
 1. **Probability Rules**:
-    - Output probabilities for **ALL 8 actions** (0-7)
+    - Output probabilities for **ALL 6 actions** (0-5)
     - Higher probability = stronger preference
     - Only if the Current Instruction is finished and it is the last instruction, can choose the TASK_FINISH action
 2. **Important Note**:
     - When the instruction says **"turn right"** (or **"turn left"**) without a specified degree, it means a large turn, usually 90 degrees(about 2 times).
     - When the instruction says **"turn around"** without a specified degree, it means a large turn, usually 180 degrees(about 4 times).
     - When the valid action in the list says **"TURN_RIGHT"** (or **"TURN_LEFT"**), it refers to a small 15-degree turn. Be sure to distinguish between these cases.
+    - The distances of objects in the scene are inaccurate estimates. Use them as a reference only.
     - Do not skip any keypoint mentioned in the instruction.
     - One step may not be enough to finish an action. You can repeat the previous action if necessary.
-
-############
-
-EXAMPLE:
-
-### INPUT
-
-{{
-  "current_time_step": "step 7",
-  "whole_instruction_list": [
-    {{
-    "sub-instruction_1": "turn right and go down the road.",
-    "landmark": ["road"]
-    }},
-    {{
-    "sub-instruction_2": "turn left after the park and visit the park benches along the side.",
-    "landmark": ["park", "park benches"]
-    }},
-    {{
-    "sub-instruction_3": "stop by the trees near the benches on the other side of the park.",
-    "landmark": ["trees", "benches", "park"]
-    }}
-  ],
-  "current_instruction": "turn right and go down the road.",
-  "current_scene":   {{
-    "scene": {{
-      "objects": [
-        {{
-          "name": "park",
-          "position": "center",
-          "distance": "50m",
-          "status": "founded"
-        }},
-        {{
-          "name": "road",
-          "position": "left",
-          "distance": "20m",
-          "status": "approaching"
-        }},
-        {{
-          "name": "park benches_1",
-          "position": "lower right",
-          "distance": "10m",
-          "status": "being searched for"
-        }},
-        {{
-          "name": "trees_1",
-          "position": "somewhat left",
-          "distance": "30m",
-          "status": "founded"
-        }},
-        {{
-          "name": "vehicles_1",
-          "position": "especially right",
-          "distance": "15m",
-          "status": "moving away"
-        }},
-        {{
-          "name": "pedestrians_1",
-          "position": "somewhat left",
-          "distance": "25m",
-          "status": "not visible"
-        }}
-      ]
-    }}
-  }},
-  "history": {{
-    "executed_actions": [
-      "4: GO_UP (2 meters)",
-      "3: TURN_RIGHT (45 degrees)",
-      "3: TURN_RIGHT (45 degrees)",
-    ]
-  }}
-}}
-
-### OUTPUT
-
-```json
-{{
-  "thought": "The current instruction is to 'turn right and go down the road.' In the current scene, there's a road visible to the left. Since the historical actions show I previously ascended and turned right. The visual memory confirms there was a road at center before, and the road in my left now. I have turned right too much, I should turn left and move forward along the road. ",
-  "probabilities": {{
-    "0": 0.0,
-    "1": 0.1,
-    "2": 0.8,
-    "3": 0.0,
-    "4": 0.0,
-    "5": 0.1
-  }},
-  "selected_action": 2,
-  "execute_times": 1,
-  "questions": "When should I finish this instruction?",
-}}
-```
 
 ############
 
@@ -663,15 +593,17 @@ EXAMPLE:
         # next_instruction = navigation_instructions[index + 1]
         # prompt = self.prompt.format(actions_description=actions_description, scene_description=scene_description, previous_instruction=previous_instruction, current_instruction=current_instruction, next_instruction=next_instruction, history=history)
         # # system_prompt = self.system_prompt.format(actions_description=actions_description)
-        history, plan = self.history_manager.get()
+        # history, plan = self.history_manager.get()
+        history = self.history_manager.get_tuple(2)
         input = {}
-        input['current_time_step'] = f'step {step}'
+        # input['current_time_step'] = f'step {step}'
         input['whole_instruction_list'] = navigation_instructions
         input['current_instruction'] = current_instruction
         input['current_scene'] = scene_description
         input['history'] = history
+        input['history_actions'] = self.history_manager.get_actions()
         if attention_forward:
-            input['additional_guidance'] = "MOVE_FORWARD may collide with the object in the scene, Try to turn direction or change altitude."
+            input['additional_guidance'] = "MOVE_FORWARD will collide with the object in the scene, try to change direction or altitude."
         prompt = self.prompt.format(input=json.dumps(input))
         responses_raw = self.llm.request(prompt, model_name=self.model_name)
         responses = re.findall(r"```json(?:\w+)?\n(.*?)```", responses_raw, re.DOTALL | re.IGNORECASE)
@@ -679,7 +611,8 @@ EXAMPLE:
         thoughs = response['thought']
         probabilities = response['probabilities']
         action = response['selected_action']
-        question = response['questions']
+        keypose = response['keypose']
+        # question = response['questions']
         
         if log_dir is not None:
             file_name = 'plan.txt' if not replan else 'replan.txt'
@@ -696,8 +629,9 @@ EXAMPLE:
                 f.write("\n---\n")
                 f.write(str(action))
                 f.write("\n---\n")
-                f.write(str(question))
-        return thoughs, probabilities, action
+                f.write(str(keypose))
+                # f.write(str(question))
+        return thoughs, keypose, action
     
     def extract_landmarks(self, navigation_instructions: str, log_dir=None):
         prompt = """[[Task Instruction]]
@@ -1063,8 +997,8 @@ You are an advanced multimodal perception system for a drone executing Vision-La
         #         self.history_manager.update_plan(plan)
         #         self.history_manager.update(action, scene, instructions=instruction)
         #         actions.append(action)
-        def check_collision(depth_img, action, img_width=640, img_height=480, drone_width=1.0, drone_height=0.1, fov=90, distance=6.0):
-            # print(depth_img.shape) # (480, 640, 1)
+        def check_collision(depth_img, action, img_width=640, img_height=360, drone_width=1.0, drone_height=0.1, fov=90, distance=5.1):
+            # print(depth_img.shape) # (360, 640, 1)
             pixel_angle = fov / img_width
             center_x = img_width // 2
             center_y = img_height // 2
@@ -1080,6 +1014,30 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                         if x < 0 or x >= img_width or y < 0 or y >= img_height:
                             continue
                         if depth_img[y, x] < distance:
+                            return True
+                return False
+            elif action == 5:
+                height_map = np.zeros_like(depth_img)
+                for y in range(img_height):
+                    angle_y_tan = np.tan(abs(y - center_y) * pixel_angle * (np.pi / 180))
+                    height_map[y] = angle_y_tan * depth_img[y]
+                half_angle_x = np.arctan(drone_width / (2 * distance)) * (180 / np.pi)
+                half_angle_y = np.arctan(drone_height / (2 * distance)) * (180 / np.pi)
+                half_width = math.ceil(half_angle_x / pixel_angle)
+                half_width = 10
+                height = math.ceil(img_height * 0.05)
+                gradient_y = np.gradient(height_map, axis=0)
+                # depth_gradient_y = np.gradient(depth_img, axis=0)
+                gradient_threshold = 0.01
+                for dx in range(-half_width, half_width):
+                    x = center_x + dx
+                    for dy in range(-height, 0):
+                        y = img_height + dy
+                        if x < 0 or x >= img_width or y < 0 or y >= img_height:
+                            continue
+                        gradient = abs(gradient_y[y, x])
+                        # print(f"[{x}, {y}], depth: {depth_img[y, x]}, height: {height_map[y, x]}, gradient_height: {gradient_y[y, x]}, gradient_depth: {depth_gradient_y[y, x]}")
+                        if height_map[y, x] < distance and gradient <= gradient_threshold:
                             return True
                 return False
             else:
@@ -1106,7 +1064,9 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                 cv2.imwrite(os.path.join(log_dir, f'{step}_depth.png'), depth_unit8)
                 image_to_base64(frame.image, os.path.join(log_dir, f'{step}.jpg'))
                 if check_collision(depth * 100, 1):
-                    print('Collision Dangeroous')
+                    print('MOVE_FORWARD Collision Dangeroous')
+                if check_collision(depth * 100, 5, distance=2.1):
+                    print('GO_DOWN Collision Dangeroous')
                 instruction = [None] + instruction.split('. ') + [None]
                 action, finished = map(int, input('Enter action and finished: ').split())
                 finished = finished == 1
@@ -1155,15 +1115,16 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                     response = self.planner.plan(navigation_instructions=self.landmarks[i], scene_description=scene, index = index, current_instruction=current_instruction, log_dir=log_dir,step=step)
                     thoughs, probabilities, action = self.parser.parse_response(response, log_dir=log_dir)
                 else:
-                    thoughs, probabilities, action = self.planner.plan_split(navigation_instructions=self.landmarks[i], current_instruction=current_instruction, scene_description=scene, attention_forward=attention_forward, log_dir=log_dir, step=step)
+                    thoughs, keypose, action = self.planner.plan_split(navigation_instructions=self.landmarks[i], current_instruction=current_instruction, scene_description=scene, attention_forward=attention_forward, log_dir=log_dir, step=step)
                 if action == 2 or action == 3:
                     prev_actions[i] = [action, 3]
                 else:
                     prev_actions[i] = [action, 1]
             # thoughs, plan, action = self.parser.parse_response(response, log_dir=log_dir)
             # self.history_manager.update_plan(plan)
-            self.history_manager.update(None if prev_action is None else prev_action[0], scene, instructions=current_instruction, log_dir=log_dir)
-            self.history_manager.history_thoughts = thoughs
+            # self.history_manager.update(None if prev_action is None else prev_action[0], scene, instructions=current_instruction, log_dir=log_dir)
+            # self.history_manager.history_thoughts = thoughs
+            self.history_manager.add_tuple(thought=thoughs, action=action, keypose=keypose, observation=scene)
             actions.append(action)
         print(f'Action: {actions}')
         return actions
