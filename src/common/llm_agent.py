@@ -47,7 +47,7 @@ The JSON must include the following information:
 - "required_information": An object containing:
   - "objects": A list (array) where each element is an object with the following properties:
       - "name": The name of object.
-      - "focus_area": A string specifying which region of the image should receive special attention (for example, "upper left", "center", "lower right", etc.), guiding the expert on where to concentrate their analysis.
+      - "question": A question regarding the object's status or its impact on the navigation task. (e.g. "Is the tree obstructing the flight path?", etc.), guiding the expert to concentrate their analysis.
 
 Your output must be strictly in JSON format, without any additional commentary or explanation.
 
@@ -55,20 +55,14 @@ Current Instruction: {current_instruction}
 Next Instruction: {next_instruction}"""
 
 scene_prompt_activate = """[ROLE]  
-You are an advanced multimodal perception system for a drone executing Vision-Language Navigation (VLN). Your task is to analyze first-person view RGB-D imagery and generate mission-aware environmental semantics for the given [Instruction].
+You are an advanced multimodal perception system for a drone executing Vision-Language Navigation (VLN). Your task is to analyze first-person view RGB image and generate mission-aware environmental semantics for the given [Instruction].
 
 The JSON must include the following information:
-- "scene": Describe the scene according to the image input, including its category, its object(including their relative position to you) in the form of "This is a scene of .."
+- "scene": Describe the scene according to the image input, including its category, its object(including their size and relative position to you) in the form of "This is a scene of .., in the upper left there is a .., in the right there is a .., etc."
 
 **Note: If multiple objects share the same "name", differentiate them by appending a unique number to their name (e.g., "vehicle_1", "vehicle_2").**
-**Note: Only VISIBLE objects should be included in the output.**
-**Note: giving special priority to the areas specified by "focus_area" properties in [Suggestion]**
-**Valid Actions**:
-MOVE_FORWARD (5 meters)
-TURN_LEFT (45 degrees)
-TURN_RIGHT (45 degrees)
-GO_UP (2 meters)
-GO_DOWN (2 meters)
+**Note: Only VISIBLE objects can be included in the output.**
+**Note: The "question" properties in [Suggestion] is what you need to think.**
 
 Your output must strictly be valid JSON without any additional commentary or explanation. 
 
@@ -89,68 +83,82 @@ class HistoryManager():
         self.llm = LLMWrapper()
         self.plan = None
 
-    def update(self, action, observation, instructions, log_dir=None):
-        self.history_observations.append(observation)
+    def update(self, log_dir=None):
+        # self.history_observations.append(observation)
         actions = actions_description.split('\n')
-        prompt = """You are a memory expert. Below is the structured description of a historical scene, the current scene, and the recent action performed. Please update the memory based on these descriptions, distinguishing between new and existing objects, and recording their positions. The output should be in JSON format. 
+        prompt = """You are a memory expert. Below is the structured description of a historical scene, the current scene, and the recent action performed. Please update the memory based on these descriptions. The updated memory should be concise, highlighting only key information while leaving out redundant details. Focus on condensing the history into a shorter version, in a short paragraph, preserving the essential context of past decisions, actions, and the environment.
 
-#### Step 1: Track Object's Status
-For each object, determine its current status based on its movement relative to the drone's position. Use the following statuses:
-- **new**: Object just discovered by the dron.
-- **old**: Object was already in the historical scene.
+the input for you includes:
 
-#### Step 2: Determine Object's Location
-For each object, track its location relative to the drone's position. Use one of these categories: "especially left", "left", "somewhat left", "center", "somewhat right", "right", "especially right" and "behind".
+### INPUT
 
-#### Step 3: Update Memory
-After considering the status and location of each object, update the visual memory in the following format:
-- "scene": An object containing:
-  - "objects": An array where each element is an object representing a key element in the scene. Each object should include the following properties:
-    - "name": Object unique identifier (e.g., "building_1", "vehicle_2", etc.)
-    - "status": The determined status from Step 1 ("new" or "old")
-    - "position": The determined location from Step 2 (e.g., "center", "left", "right", etc.)
-    - "bbox_2d": The bounding box [x1, y1, x2, y2] normalized to [0,1]
-    - "actions": What actions can the drone take to go to the object.
+[History]: the history of the previous actions and observations
 
-**Note: If multiple objects share the same "name", differentiate them by appending a unique number to their name (e.g., "vehicle_1", "vehicle_2").**
-**Valid Actions**:
-MOVE_FORWARD (5 meters)
-TURN_LEFT (45 degrees)
-TURN_RIGHT (45 degrees)
-GO_UP (2 meters)
-GO_DOWN (2 meters)
+[Thought]: Why you choose this action
 
-Your output must strictly be valid JSON without any additional commentary or explanation. 
+[Action]: Which action you have performed
+
+[Keypose]: Which sub-action in the current instruction are you operating
+
+[Observation]: The current scene
+
+You should:
+1) evaluate the new observation and history.
+2) update the history with the previous action and the new observation.
+3) summarize the updated history in brief. 
+
+Your output must strictly be valid JSON in markdown codeblock without any additional commentary or explanation. 
+The JSON must include the following information:
+- "history": the updated history after the new observation and previous action.
 
 ########
 
 [INPUT]
-Previous Memory: {visual_memory}
 
-Current Scene: {scene_description}
+History: {history}
 
-Executed Action: {action}"""
+Thought: {thought}
+
+Observation: {observation}
+
+Action: {previous_action}
+
+Keypose: {keypose}
+"""
+
         responses_raw = ''
         try: 
-            if action is not None:
-                self.history_actions.append(actions[action])
-                # if len(self.history_actions) > 20:
-                #     self.history_actions.pop(0)
-                # return
-                prompt = prompt.format(visual_memory=self.history, action=actions[action], scene_description=observation, navigation_instruction=instructions)
+            # if action is not None:
+            #     self.history_actions.append(actions[action])
+            #     # if len(self.history_actions) > 20:
+            #     #     self.history_actions.pop(0)
+            #     # return
+            #     prompt = prompt.format(history=self.history, previous_action=actions[action], observation=observation)
+            # else:
+            #     # return
+            #     prompt = prompt.format(history=self.history, previous_action=None, observation=observation)
+            # responses_raw = self.llm.request_with_history(prompt=prompt, model_name=self.model_name, history_id='visual_memory')
+            history = self.get_tuple(1)
+            if len(history) == 0:
+                history = {
+                    "thought": None,
+                    "observation": None,
+                    "action": None,
+                    "keypose": None
+                }
             else:
-                # return
-                prompt = prompt.format(visual_memory=self.history, action=None, scene_description=observation, navigation_instructions=instructions)
-            responses_raw = self.llm.request_with_history(prompt=prompt, model_name=self.model_name, history_id='visual_memory')
+                history = history[0]
+            prompt = prompt.format(history=self.history, thought=history['thought'], observation=history['observation'], previous_action=history['action'], keypose=history['keypose'])
+            responses_raw = self.llm.request(prompt, model_name=self.model_name)
             responses = re.findall(r"```json(?:\w+)?\n(.*?)```", responses_raw, re.DOTALL | re.IGNORECASE)
             if len(responses) == 0:
                 response = json_repair.loads(responses_raw)
             else:
                 response = json_repair.loads(responses[-1])
-            if self.history_raw is not None:
-                self.llm.update_history('visual_memory', {"role": "assistant", "content": self.history_raw})
+            # if self.history_raw is not None:
+            #     self.llm.update_history('visual_memory', {"role": "assistant", "content": self.history_raw})
             self.history_raw = responses_raw
-            self.history = response
+            self.history = response['history']
         except Exception as e:
             logger.error(f"Failed to parse response: {responses_raw}")
         
@@ -223,10 +231,12 @@ Executed Action: {action}"""
 
 actions_description = """TASK_FINISH  
 MOVE_FORWARD (5 meters)
-TURN_LEFT (45 degrees)
-TURN_RIGHT (45 degrees)
+TURN_LEFT (15 degrees)
+TURN_RIGHT (15 degrees)
 GO_UP (2 meters)
-GO_DOWN (2 meters)"""
+GO_DOWN (2 meters)
+MOVE_LEFT (5 meters)
+MOVE_RIGHT (5 meters)"""
 
 class LLMParser():
     def __init__(self, model_name=GPT4O_MINI, detector='dino'):
@@ -467,8 +477,8 @@ Now, based on the above INPUT, plan your next action at this time step.
 **Valid Actions** (0-5):
 0: TASK_FINISH
 1: MOVE_FORWARD (5 meters)
-2: TURN_LEFT (45 degrees)
-3: TURN_RIGHT (45 degrees)
+2: TURN_LEFT (15 degrees)
+3: TURN_RIGHT (15 degrees)
 4: GO_UP (2 meters)
 5: GO_DOWN (2 meters)
 
@@ -486,7 +496,7 @@ Your output should include:
 
 [execute_times]: How many times does the selected action should be executed.
 
-[keypose]: Mention which sub-action in the instruction are you operating, and do you need another step to finish the sub-action.
+[keypose]: Mention which sub-action in the current instruction are you operating, and do you need another step to finish the sub-action.
 
 #######
 
@@ -518,8 +528,8 @@ A valid output EXAMPLE:
     - Higher probability = stronger preference
     - Only if the Current Instruction is finished and it is the last instruction, can choose the TASK_FINISH action
 2. **Important Note**:
-    - When the instruction says **"turn right"** (or **"turn left"**) without a specified degree, it means a large turn, usually 90 degrees(about 2 times).
-    - When the instruction says **"turn around"** without a specified degree, it means a large turn, usually 180 degrees(about 4 times).
+    - When the instruction says **"turn right"** (or **"turn left"**) without a specified degree, it means a large turn, usually 90 degrees(about 6 times).
+    - When the instruction says **"turn around"** without a specified degree, it means a large turn, usually 180 degrees(about 12 times).
     - If the additional guidance says some actions will collide with objects, you must select other safe action to avoid collision.
     - Do not skip any keypoint mentioned in the instruction.
     - One step may not be enough to finish an action. You can repeat the previous action if necessary.
@@ -588,7 +598,8 @@ A valid output EXAMPLE:
         # prompt = self.prompt.format(actions_description=actions_description, scene_description=scene_description, previous_instruction=previous_instruction, current_instruction=current_instruction, next_instruction=next_instruction, history=history)
         # # system_prompt = self.system_prompt.format(actions_description=actions_description)
         # history, plan = self.history_manager.get()
-        history = self.history_manager.get_tuple(2)
+        # history = self.history_manager.get_tuple(2)
+        history = self.history_manager.history
         input = {}
         # input['current_time_step'] = f'step {step}'
         # input['whole_instruction_list'] = navigation_instructions
@@ -722,7 +733,7 @@ Action History: {action_history}
 History: {history}
 Current Scene Description: {scene}
 Aditional Guidance: {guidance}"""
-        prompt = prompt.format(current_instruction=current_instruction, next_instruction=next_instruction, action_history=self.history_manager.get_actions(), scene=scene, history=self.history_manager.get_tuple(), guidance=guidance)
+        prompt = prompt.format(current_instruction=current_instruction, next_instruction=next_instruction, action_history=self.history_manager.get_actions(), scene=scene, history=self.history_manager.history, guidance=guidance)
         response_raw = self.llm.request(prompt, model_name=self.model_name)
         response = re.findall(r"```json(?:\w+)?\n(.*?)```", response_raw, re.DOTALL | re.IGNORECASE)
         if len(response) == 0:
@@ -1109,7 +1120,7 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                         f.write("\n---\n")
                         f.write(f"{instruction[index]} finished")
                 if action == 2 or action == 3:
-                    prev_actions[i] = [action, 3]
+                    prev_actions[i] = [action, 1]
                 else:
                     prev_actions[i] = [action, 1]
                 actions.append(action)
@@ -1121,7 +1132,8 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                 # instruction = [None] + instruction.split('. ') + [None]
                 instruction = [None] + self.landmarks[i] + [None]
                 current_instruction = self.landmarks[i][index - 1][f'sub-instruction_{index}']
-                scene = get_scene_with_suggestion(current_instruction=current_instruction, next_instruction=self.landmarks[i][index], rgb=rgb, landmark=self.landmarks[i][index - 1]['landmark'], log_dir=log_dir)
+                next_instruction = self.landmarks[i][index] if index < len(self.landmarks[i]) else None
+                scene = get_scene_with_suggestion(current_instruction=current_instruction, next_instruction=next_instruction, rgb=rgb, landmark=self.landmarks[i][index - 1]['landmark'], log_dir=log_dir)
                 attention = ""
                 if check_collision(depth * 100, 1):
                     attention += "MOVE_FORWARD will collide with objects. "
@@ -1137,9 +1149,8 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                     attention += "GO_DOWN is safe. "
                 attention += "TURN_LEFT and TURN_RIGHT are safe. "
                 if step > 0: 
-                    next_instruction = self.landmarks[i][index]
-                    next_instruction = next_instruction[f'sub-instruction_{index + 1}'] if next_instruction is not None else None
-                    judge = self.planner.finished_judge(current_instruction, next_instruction, scene, guidance=attention, log_dir=log_dir)
+                    next_instruction_text = next_instruction[f'sub-instruction_{index + 1}'] if next_instruction is not None else None
+                    judge = self.planner.finished_judge(current_instruction, next_instruction_text, scene, guidance=attention, log_dir=log_dir)
                     if judge['instruction_status'] == 'completed':
                         self.instruction_indexes[i] = index + 1
                         print(f'Instruction {index} finished')
@@ -1149,22 +1160,21 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                             actions.append(action)
                             continue
                         current_instruction = self.landmarks[i][index - 1][f'sub-instruction_{index}']
-                        scene = get_scene_with_suggestion(current_instruction=current_instruction, next_instruction=self.landmarks[i][index], rgb=rgb, landmark=self.landmarks[i][index - 1]['landmark'], reget=True, log_dir=log_dir)
+                        scene = get_scene_with_suggestion(current_instruction=current_instruction, next_instruction=next_instruction, rgb=rgb, landmark=self.landmarks[i][index - 1]['landmark'], reget=True, log_dir=log_dir)
                 if self.planner.model_name == DEEPSEEKR1_32B:
                     response = self.planner.plan(navigation_instructions=self.landmarks[i], scene_description=scene, index = index, current_instruction=current_instruction, log_dir=log_dir,step=step)
                     thoughs, probabilities, action = self.parser.parse_response(response, log_dir=log_dir)
                 else:
-                    next_instruction = self.landmarks[i][index]
                     thoughs, keypose, action = self.planner.plan_split(current_instruction=current_instruction, next_instruction=next_instruction, scene_description=scene, attention=attention, log_dir=log_dir, step=step)
                 if action == 2 or action == 3:
-                    prev_actions[i] = [action, 3]
+                    prev_actions[i] = [action, 1]
                 else:
                     prev_actions[i] = [action, 1]
             # thoughs, plan, action = self.parser.parse_response(response, log_dir=log_dir)
             # self.history_manager.update_plan(plan)
-            # self.history_manager.update(None if prev_action is None else prev_action[0], scene, instructions=current_instruction, log_dir=log_dir)
             # self.history_manager.history_thoughts = thoughs
             self.history_manager.add_tuple(thought=thoughs, action=action, keypose=keypose, observation=scene)
+            self.history_manager.update(log_dir=log_dir)
             actions.append(action)
         print(f'Action: {actions}')
         return actions
