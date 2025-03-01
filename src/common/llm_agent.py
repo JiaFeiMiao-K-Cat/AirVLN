@@ -51,6 +51,7 @@ The JSON must include the following information:
 
 Your output must be strictly in JSON format, without any additional commentary or explanation.
 
+History: {history}
 Current Instruction: {current_instruction}
 Next Instruction: {next_instruction}"""
 
@@ -58,11 +59,11 @@ scene_prompt_activate = """[ROLE]
 You are an advanced multimodal perception system for a drone executing Vision-Language Navigation (VLN). Your task is to analyze first-person view RGB image and generate mission-aware environmental semantics for the given [Instruction].
 
 The JSON must include the following information:
-- "scene": Describe the scene according to the image input, including its category, its object(including their size and relative position to you) in the form of "This is a scene of .., in the upper left there is a .., in the right there is a .., etc."
+- "scene": A string describe the scene according to the image input, including its category, its object(including their size and relative position to you) in the form of "This is a scene of .., in the upper left there is a .., in the right there is a .., etc."
 
 **Note: If multiple objects share the same "name", differentiate them by appending a unique number to their name (e.g., "vehicle_1", "vehicle_2").**
 **Note: Only VISIBLE objects can be included in the output.**
-**Note: The "question" properties in [Suggestion] is what you need to think.**
+**Note: It is crucial to think about each question in [Suggestion].**
 
 Your output must strictly be valid JSON without any additional commentary or explanation. 
 
@@ -732,7 +733,7 @@ Next Instruction: {next_instruction}
 Action History: {action_history}
 History: {history}
 Current Scene Description: {scene}
-Aditional Guidance: {guidance}"""
+Additional Guidance: {guidance}"""
         prompt = prompt.format(current_instruction=current_instruction, next_instruction=next_instruction, action_history=self.history_manager.get_actions(), scene=scene, history=self.history_manager.history, guidance=guidance)
         response_raw = self.llm.request(prompt, model_name=self.model_name)
         response = re.findall(r"```json(?:\w+)?\n(.*?)```", response_raw, re.DOTALL | re.IGNORECASE)
@@ -798,7 +799,7 @@ class Agent():
         rgbs = observations['rgb']
         depths = observations['depth']
         def get_suggestion(current_instruction, next_instruction, reget=False, log_dir=None):
-            prompt = scene_prompt_preprocess.format(current_instruction=current_instruction, next_instruction=next_instruction)
+            prompt = scene_prompt_preprocess.format(current_instruction=current_instruction, next_instruction=next_instruction, history=self.history_manager.history)
             response_raw = self.planner.llm.request(prompt, model_name=self.planner.model_name)
             response = re.findall(r"```json(?:\w+)?\n(.*?)```", response_raw, re.DOTALL | re.IGNORECASE)
             if len(response) == 0:
