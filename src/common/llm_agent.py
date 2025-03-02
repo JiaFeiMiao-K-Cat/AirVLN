@@ -47,13 +47,19 @@ The JSON must include the following information:
 - "required_information": An object containing:
   - "objects": A list (array) where each element is an object with the following properties:
       - "name": The name of object.
-      - "question": A question regarding the object's status or its impact on the navigation task. (e.g. "Is the tree obstructing the flight path?", etc.), guiding the expert to concentrate their analysis.
+      - "question": A question regarding the object's status or its impact on the navigation task, guiding the expert to concentrate their analysis.
 
 Your output must be strictly in JSON format, without any additional commentary or explanation.
 
-History: {history}
-Current Instruction: {current_instruction}
-Next Instruction: {next_instruction}"""
+### Input ###
+[History]:
+{history}
+
+[Current Instruction]:
+{current_instruction}
+
+[Next Instruction]:
+{next_instruction}"""
 
 scene_prompt_activate = """[ROLE]  
 You are an advanced multimodal perception system for a drone executing Vision-Language Navigation (VLN). Your task is to analyze first-person view RGB image and generate mission-aware environmental semantics for the given [Instruction].
@@ -68,9 +74,11 @@ The JSON must include the following information:
 Your output must strictly be valid JSON without any additional commentary or explanation. 
 
 ### Input ###
-[Instruction]: {navigation_instructions}
+[Instruction]:
+{navigation_instructions}
 
-[Suggestion]: {suggestion}"""
+[Suggestion]:
+{suggestion}"""
 
 class HistoryManager():
     def __init__(self, model_name=GPT4O_MINI):
@@ -90,17 +98,10 @@ class HistoryManager():
         prompt = """You are a memory expert. Below is the structured description of a historical scene, the current scene, and the recent action performed. Please update the memory based on these descriptions. The updated memory should be concise, highlighting only key information while leaving out redundant details. Focus on condensing the history into a shorter version, in a short paragraph, preserving the essential context of past decisions, actions, and the environment.
 
 the input for you includes:
-
-### INPUT
-
 [History]: the history of the previous actions and observations
-
 [Thought]: Why you choose this action
-
 [Action]: Which action you have performed
-
 [Keypose]: Which sub-action in the current instruction are you operating
-
 [Observation]: The current scene
 
 You should:
@@ -112,20 +113,24 @@ Your output must strictly be valid JSON in markdown codeblock without any additi
 The JSON must include the following information:
 - "history": the updated history after the new observation and previous action.
 
-########
+**Note: The VFOV is 50 degrees and the HFOV is 90 degrees. Think carefully about your position relative to objects.**
 
-[INPUT]
+### Input ###
 
-History: {history}
+[History]:
+{history}
 
-Thought: {thought}
+[Thought]:
+{thought}
 
-Observation: {observation}
+[Observation]:
+{observation}
 
-Action: {previous_action}
+[Action]:
+{previous_action}
 
-Keypose: {keypose}
-"""
+[Keypose]:
+{keypose}"""
 
         responses_raw = ''
         try: 
@@ -482,6 +487,8 @@ Now, based on the above INPUT, plan your next action at this time step.
 3: TURN_RIGHT (15 degrees)
 4: GO_UP (2 meters)
 5: GO_DOWN (2 meters)
+6: MOVE_LEFT (5 meters)
+7: MOVE_RIGHT (5 meters)
 
 ***********************
 
@@ -491,7 +498,7 @@ Your output should include:
 
 [thought]: tell us why you choose this action, e.g. you can analyze the association between the current scene and the current instruction, consider the whole instruction list and history, etc.
 
-[probabilities]: assign a probability distribution over the valid action list (0-5).
+[probabilities]: assign a probability distribution over the valid action list (0-7).
 
 [selected_action]: Explicitly select the action with highest probability.
 
@@ -513,7 +520,9 @@ A valid output EXAMPLE:
     "2(TURN_LEFT)": 0.0,
     "3(TURN_RIGHT)": 0.1,
     "4(GO_UP)": 0.8,
-    "5(GO_DOWN)": 0.0
+    "5(GO_DOWN)": 0.0,
+    "6(MOVE_LEFT)": 0.0,
+    "7(MOVE_RIGHT)": 0.0
   }},
   "selected_action": 3,
   "execute_times": 2,
@@ -525,7 +534,7 @@ A valid output EXAMPLE:
 [More Constraints]
 
 1. **Probability Rules**:
-    - Output probabilities for **ALL 6 actions** (0-5)
+    - Output probabilities for **ALL 8 actions** (0-7)
     - Higher probability = stronger preference
     - Only if the Current Instruction is finished and it is the last instruction, can choose the TASK_FINISH action
 2. **Important Note**:
@@ -607,7 +616,7 @@ A valid output EXAMPLE:
         input['current_instruction'] = current_instruction
         input['next_instruction'] = next_instruction
         input['history'] = history
-        input['history_actions'] = self.history_manager.get_actions()
+        # input['history_actions'] = self.history_manager.get_actions()
         input['current_scene'] = scene_description
         input['additional_guidance'] = attention
         prompt = self.prompt.format(input=json.dumps(input))
@@ -706,12 +715,11 @@ Output:"""
     
     def finished_judge(self, current_instruction, next_instruction, scene, guidance, log_dir=None):
         prompt = """You are a drone navigation analysis expert. You are provided with the following inputs:
-1. **Current Instruction**: The command that is currently being executed.
-2. **Next Instruction**: The subsequent command that will be executed.
-3. **Action History**: A list of actions that have been performed so far.
-4. **History**: Including the history observations, thoughts, actions and keyposes.
-5. **Current Scene Description**: A detailed description of the current scene.
-6. **Additional Guidance**: Tips for avoiding collisions in the current scene.
+[Current Instruction]: The command that is currently being executed.
+[Next Instruction]: The subsequent command that will be executed.
+[History]: Including the history observations, thoughts, actions and keyposes.
+[Current Scene Description]: A detailed description of the current scene.
+[Additional Guidance]: Tips for avoiding collisions in the current scene.
 
 Your task is to determine whether the current instruction has been fully completed, partially completed, or not completed at all. To make this judgment, analyze the inputs as follows:
 - Consider the current scene description to verify if the expected outcomes of the current instruction or the start of the next instruction are visible.
@@ -728,12 +736,20 @@ Output your analysis strictly in valid JSON format with the following structure:
 
 Your output must be strictly in JSON codeblock with no additional commentary or explanation.
 
-Current Instruction: {current_instruction}
-Next Instruction: {next_instruction}
-Action History: {action_history}
-History: {history}
-Current Scene Description: {scene}
-Additional Guidance: {guidance}"""
+[Current Instruction]:
+{current_instruction}
+
+[Next Instruction]:
+{next_instruction}
+
+[History]:
+{history}
+
+[Current Scene Description]:
+{scene}
+
+[Additional Guidance]:
+{guidance}"""
         prompt = prompt.format(current_instruction=current_instruction, next_instruction=next_instruction, action_history=self.history_manager.get_actions(), scene=scene, history=self.history_manager.history, guidance=guidance)
         response_raw = self.llm.request(prompt, model_name=self.model_name)
         response = re.findall(r"```json(?:\w+)?\n(.*?)```", response_raw, re.DOTALL | re.IGNORECASE)
