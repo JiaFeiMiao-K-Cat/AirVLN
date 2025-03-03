@@ -65,7 +65,7 @@ scene_prompt_activate = """[ROLE]
 You are an advanced multimodal perception system for a drone executing Vision-Language Navigation (VLN). Your task is to analyze first-person view RGB image and generate mission-aware environmental semantics for the given [Instruction].
 
 The JSON must include the following information:
-- "scene": A string describe the scene according to the image input, including its category, its object(including their size and relative position to you) in the form of "This is a scene of .., in the upper left there is a .., in the right there is a .., etc."
+- "scene": A string describe the scene according to the image input, including its category, its object(including their size and relative position to you) in the form of "This is a scene of .., in the position(e.g. left/right, etc) there is a ..., in the position there is a ..., etc."
 
 **Note: If multiple objects share the same "name", differentiate them by appending a unique number to their name (e.g., "vehicle_1", "vehicle_2").**
 **Note: Only VISIBLE objects can be included in the output.**
@@ -113,7 +113,7 @@ Your output must strictly be valid JSON in markdown codeblock without any additi
 The JSON must include the following information:
 - "history": the updated history after the new observation and previous action.
 
-**Note: The VFOV is 50 degrees and the HFOV is 90 degrees. Think carefully about your position relative to objects.**
+**Note: The VFOV and the HFOV are 90 degrees. Think carefully about your position relative to objects.**
 
 ### Input ###
 
@@ -1026,7 +1026,7 @@ You are an advanced multimodal perception system for a drone executing Vision-La
         #         self.history_manager.update_plan(plan)
         #         self.history_manager.update(action, scene, instructions=instruction)
         #         actions.append(action)
-        def check_collision(depth_img, action, img_width=640, img_height=360, drone_width=1.0, drone_height=0.1, fov=90, distance=5.1):
+        def check_collision(depth_img, action, img_width=448, img_height=448, drone_width=1.0, drone_height=0.1, fov=90, distance=5.1):
             # print(depth_img.shape) # (360, 640, 1)
             pixel_angle = fov / img_width
             center_x = img_width // 2

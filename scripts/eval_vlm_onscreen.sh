@@ -11,10 +11,10 @@ python -u ./src/vlnce_src/eval_vlm.py \
 --EVAL_LLM gpt-4o \
 --EVAL_DATASET val_unseen \
 --EVAL_NUM -1 \
---Image_Width_RGB 640 \
---Image_Height_RGB 360 \
---Image_Width_DEPTH 640 \
---Image_Height_DEPTH 360 \
+--Image_Width_RGB 224 \
+--Image_Height_RGB 224 \
+--Image_Width_DEPTH 256 \
+--Image_Height_DEPTH 256 \
 --maxAction 500
 
 

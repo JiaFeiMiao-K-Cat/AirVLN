@@ -12,10 +12,10 @@ python -u ./src/vlnce_src/eval_llm.py \
 --EVAL_LLM qwen2.5-72b-instruct \
 --EVAL_DATASET val_unseen \
 --EVAL_NUM -1 \
---Image_Width_RGB 640 \
---Image_Height_RGB 360 \
---Image_Width_DEPTH 640 \
---Image_Height_DEPTH 360 \
+--Image_Width_RGB 448 \
+--Image_Height_RGB 448 \
+--Image_Width_DEPTH 448 \
+--Image_Height_DEPTH 448 \
 --maxAction 50
 
 

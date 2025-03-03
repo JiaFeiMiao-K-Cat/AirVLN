@@ -25,24 +25,24 @@ AIRSIM_SETTINGS_TEMPLATE = {
         "CaptureSettings": [
             {
                 "ImageType": 0,
-                "Width": 640,
-                "Height": 360,
+                "Width": 448,
+                "Height": 448,
                 "FOV_Degrees": 90,
                 "AutoExposureMaxBrightness": 1,
                 "AutoExposureMinBrightness": 0.03
             },
             {
                 "ImageType": 2,
-                "Width": 640,
-                "Height": 360,
+                "Width": 448,
+                "Height": 448,
                 "FOV_Degrees": 90,
                 "AutoExposureMaxBrightness": 1,
                 "AutoExposureMinBrightness": 0.03
             },
             {
                 "ImageType": 3,
-                "Width": 640,
-                "Height": 360,
+                "Width": 448,
+                "Height": 448,
                 "FOV_Degrees": 90,
                 "AutoExposureMaxBrightness": 1,
                 "AutoExposureMinBrightness": 0.03
@@ -93,24 +93,24 @@ def create_drones(drone_num_per_env=1, show_scene=False, uav_mode=False) -> dict
                     "CaptureSettings": [
                         {
                             "ImageType": 0,
-                            "Width": 640,
-                            "Height": 360,
+                            "Width": 448,
+                            "Height": 448,
                             "FOV_Degrees": 90,
                             "AutoExposureMaxBrightness": 1,
                             "AutoExposureMinBrightness": 0.03
                         },
                         {
                             "ImageType": 2,
-                            "Width": 640,
-                            "Height": 360,
+                            "Width": 448,
+                            "Height": 448,
                             "FOV_Degrees": 90,
                             "AutoExposureMaxBrightness": 1,
                             "AutoExposureMinBrightness": 0.03
                         },
                         {
                             "ImageType": 3,
-                            "Width": 640,
-                            "Height": 360,
+                            "Width": 448,
+                            "Height": 448,
                             "FOV_Degrees": 90,
                             "AutoExposureMaxBrightness": 1,
                             "AutoExposureMinBrightness": 0.03
