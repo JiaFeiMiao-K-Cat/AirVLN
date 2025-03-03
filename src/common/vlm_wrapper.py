@@ -68,7 +68,7 @@ class VLMWrapper:
             client = self.gpt_client
         elif model_name == LLAMA3V or model_name == MINICPM:
             client = self.ollama_client
-        elif model_name == QWEN_VL_7B:
+        elif model_name == QWEN_VL_7B or model_name == QWEN_VL_72B:
             client = self.dashscope_client
         else:
             client = self.lmdeploy_client

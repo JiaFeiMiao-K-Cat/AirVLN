@@ -36,7 +36,7 @@ from Model.utils.common import append_text_to_image, images_to_video
 from src.common.param import args
 from src.vlnce_src.env import AirVLNLLMENV
 from src.common.llm_wrapper import LLMWrapper, GPT3, GPT4, GPT4O, GPT4O_MINI, LLAMA3, RWKV, QWEN, INTERN, GEMMA2, DEEPSEEKR1_32B, DEEPSEEKR1_8B
-from src.common.vlm_wrapper import MINICPM, LLAMA3V, GPT4O_V, INTERN_VL, QWEN_VL_7B
+from src.common.vlm_wrapper import MINICPM, LLAMA3V, GPT4O_V, INTERN_VL, QWEN_VL_7B, QWEN_VL_72B
 from src.common.llm_agent import Agent
 
 def generate_video(
@@ -370,7 +370,7 @@ def _eval_checkpoint(
 
     if use_agent: 
         # trainer = Agent(detector=detector, parser=GPT4O_MINI, planner=args.EVAL_LLM, history=GPT4O_MINI, vlm_model=LLAMA3V)
-        trainer = Agent(detector=detector, parser=args.EVAL_LLM, planner=args.EVAL_LLM, history=args.EVAL_LLM, vlm_model=QWEN_VL_7B, manual_mode=False)
+        trainer = Agent(detector=detector, parser=args.EVAL_LLM, planner=args.EVAL_LLM, history=args.EVAL_LLM, vlm_model=QWEN_VL_72B, manual_mode=False)
     else:
         trainer = LLMEvaluator(
             llm=args.EVAL_LLM,
