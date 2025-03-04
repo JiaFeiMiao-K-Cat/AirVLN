@@ -65,7 +65,7 @@ scene_prompt_activate = """[ROLE]
 You are an advanced multimodal perception system for a drone executing Vision-Language Navigation (VLN). Your task is to analyze first-person view RGB image and generate mission-aware environmental semantics for the given [Instruction].
 
 The JSON must include the following information:
-- "scene": A string describe the scene according to the image input, including its category, its object(including their size and relative position to you) in the form of "This is a scene of .., in the position(e.g. left/right, etc) there is a ..., in the position there is a ..., etc."
+- "scene": A string describe the scene according to the image input, in the form of "Overall: This is a scene of ... . In the ...: ... . In the ...: ... . etc."
 
 **Note: If multiple objects share the same "name", differentiate them by appending a unique number to their name (e.g., "vehicle_1", "vehicle_2").**
 **Note: Only VISIBLE objects can be included in the output.**
@@ -95,23 +95,23 @@ class HistoryManager():
     def update(self, log_dir=None):
         # self.history_observations.append(observation)
         actions = actions_description.split('\n')
-        prompt = """You are a memory expert. Below is the structured description of a historical scene, the current scene, and the recent action performed. Please update the memory based on these descriptions. The updated memory should be concise, highlighting only key information while leaving out redundant details. Focus on condensing the history into a shorter version, in a short paragraph, preserving the essential context of past decisions, actions, and the environment.
+        prompt = """You are a memory expert. Below is the structured description of a historical scene, the current scene, and the recent action. Please update the memory based on these descriptions. The updated memory should be concise, highlighting only key information while leaving out redundant details. Focus on condensing the history into a shorter version, in a short paragraph, preserving the essential context of past decisions, actions, and the environment.
 
 the input for you includes:
 [History]: the history of the previous actions and observations
+[Observation]: The current scene after taken the previous action
 [Thought]: Why you choose this action
-[Action]: Which action you have performed
-[Keypose]: Which sub-action in the current instruction are you operating
-[Observation]: The current scene
+[Action]: Which action you plan to do
+[Keypose]: Which sub-action in the current instruction are you planing to operate
 
 You should:
 1) evaluate the new observation and history.
-2) update the history with the previous action and the new observation.
+2) update the history with the new observation and the action.
 3) summarize the updated history in brief. 
 
 Your output must strictly be valid JSON in markdown codeblock without any additional commentary or explanation. 
 The JSON must include the following information:
-- "history": the updated history after the new observation and previous action.
+- "history": the updated history after the new observation and action in brief words.
 
 **Note: The VFOV and the HFOV are 90 degrees. Think carefully about your position relative to objects.**
 
@@ -464,15 +464,15 @@ the input for you includes:
 
 ### INPUT
 
-[current instruction]
+[Current Instruction]
 
-[next instruction]
+[Next Instruction]
 
 [Additional Guidance]: if there is any special attention to avoid collisions.
 
-[history]
+[History]
 
-[current scene]
+[Current Scene]
 
 ######
 
@@ -548,8 +548,20 @@ A valid output EXAMPLE:
 
 ### INPUT
 
-{input}
-"""
+[Current Instruction]:
+{current_instruction}
+
+[Next Instruction]:
+{next_instruction}
+
+[History]:
+{history}
+
+[Current Scene]:
+{scene_description}
+
+[Additional Guidance]:
+{additional_guidance}"""
 
     # def plan(self, navigation_instructions, scene_description, log_dir=None):
     #     history, plan = self.history_manager.get()
@@ -613,13 +625,14 @@ A valid output EXAMPLE:
         input = {}
         # input['current_time_step'] = f'step {step}'
         # input['whole_instruction_list'] = navigation_instructions
-        input['current_instruction'] = current_instruction
-        input['next_instruction'] = next_instruction
-        input['history'] = history
-        # input['history_actions'] = self.history_manager.get_actions()
-        input['current_scene'] = scene_description
-        input['additional_guidance'] = attention
-        prompt = self.prompt.format(input=json.dumps(input))
+        # input['current_instruction'] = current_instruction
+        # input['next_instruction'] = next_instruction
+        # input['history'] = history
+        # # input['history_actions'] = self.history_manager.get_actions()
+        # input['current_scene'] = scene_description
+        # input['additional_guidance'] = attention
+        # prompt = self.prompt.format(input=json.dumps(input))
+        prompt = self.prompt.format(current_instruction=current_instruction, next_instruction=next_instruction, scene_description=scene_description, additional_guidance=attention, history=history)
         responses_raw = self.llm.request(prompt, model_name=self.model_name)
         responses = re.findall(r"```json(?:\w+)?\n(.*?)```", responses_raw, re.DOTALL | re.IGNORECASE)
         response = json_repair.loads(responses[-1])
@@ -1057,7 +1070,7 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                 height = math.ceil(img_height * 0.05)
                 gradient_y = np.gradient(height_map, axis=0)
                 # depth_gradient_y = np.gradient(depth_img, axis=0)
-                gradient_threshold = 0.01
+                gradient_threshold = 0.02
                 for dx in range(-half_width, half_width):
                     x = center_x + dx
                     for dy in range(0, height):
@@ -1081,7 +1094,7 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                 height = math.ceil(img_height * 0.05)
                 gradient_y = np.gradient(height_map, axis=0)
                 # depth_gradient_y = np.gradient(depth_img, axis=0)
-                gradient_threshold = 0.01
+                gradient_threshold = 0.02
                 for dx in range(-half_width, half_width):
                     x = center_x + dx
                     for dy in range(-height, 0):
@@ -1118,9 +1131,9 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                 image_to_base64(frame.image, os.path.join(log_dir, f'{step}.jpg'))
                 if check_collision(depth * 100, 1):
                     print('MOVE_FORWARD Collision Dangeroous')
-                if check_collision(depth * 100, 4, distance=2.1):
+                if check_collision(depth * 100, 4, distance=2.2):
                     print('GO_UP Collision Dangeroous')
-                if check_collision(depth * 100, 5, distance=2.1):
+                if check_collision(depth * 100, 5, distance=2.2):
                     print('GO_DOWN Collision Dangeroous')
                 instruction = [None] + instruction.split('. ') + [None]
                 action, finished = map(int, input('Enter action and finished: ').split())
@@ -1156,11 +1169,11 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                     attention += "MOVE_FORWARD will collide with objects. "
                 else:
                     attention += "MOVE_FORWARD is safe. "
-                if check_collision(depth * 100, 4, distance=2.1):
+                if check_collision(depth * 100, 4, distance=2.2):
                     attention += "GO_UP will collide with objects. "
                 else:
                     attention += "GO_UP is safe. "
-                if check_collision(depth * 100, 5, distance=2.1):
+                if check_collision(depth * 100, 5, distance=2.2):
                     attention += "GO_DOWN will collide with objects. "
                 else:
                     attention += "GO_DOWN is safe. "
