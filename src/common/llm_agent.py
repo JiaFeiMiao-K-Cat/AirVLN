@@ -856,6 +856,7 @@ class Agent():
         else:
             img_path = None
         actions = []
+        finisheds = []
         instructions = observations['instruction']
         rgbs = observations['rgb']
         depths = observations['depth']
@@ -1155,8 +1156,9 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                     depth_unit8 = (depth*255).astype(np.uint8)
                     cv2.imwrite(os.path.join(log_dir, f'{step}_depth.png'), depth_unit8)
                 action = prev_action[0]
-                actions.append(action)
                 prev_actions[i] = [action, prev_action[1] - 1]
+                finisheds.append(False)
+                actions.append(action)
                 continue
             if self.manual_mode:
                 frame = Frame(rgb)
@@ -1187,9 +1189,11 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                     prev_actions[i] = [action, 1]
                 else:
                     prev_actions[i] = [action, 1]
+                finisheds.append(finished)
                 actions.append(action)
                 continue
             else: 
+                finished = False
                 if log_dir is not None: 
                     depth_unit8 = (depth*255).astype(np.uint8)
                     cv2.imwrite(os.path.join(log_dir, f'{step}_depth.png'), depth_unit8)
@@ -1218,10 +1222,12 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                     judge = self.planner.finished_judge(current_instruction_text, next_instruction_text, scene, guidance=attention, log_dir=log_dir)
                     if judge['instruction_status'] == 'completed':
                         self.instruction_indexes[i] = index + 1
+                        finished = True
                         print(f'Instruction {index} finished')
                         index = index + 1
                         if index + 1 == len(instruction):
                             action = 0
+                            finisheds.append(finished)
                             actions.append(action)
                             continue
                         current_instruction = self.landmarks[i][index - 1]
@@ -1243,6 +1249,7 @@ You are an advanced multimodal perception system for a drone executing Vision-La
             # self.history_manager.history_thoughts = thoughs
             self.history_manager.add_tuple(thought=thoughs, action=action, keypose=keypose, observation=scene)
             self.history_manager.update(log_dir=log_dir)
+            finisheds.append(finished)
             actions.append(action)
         print(f'Action: {actions}')
-        return actions
+        return actions, finisheds

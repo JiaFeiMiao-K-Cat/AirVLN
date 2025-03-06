@@ -404,6 +404,7 @@ def _eval_checkpoint(
                 prev_actions = [[] for _ in range(train_env.batch_size)]
             else:
                 prev_actions = [None for _ in range(train_env.batch_size)]
+            finisheds = [[] for _ in range(train_env.batch_size)]
 
             rgb_frames = [[] for _ in range(train_env.batch_size)]
 
@@ -442,7 +443,7 @@ def _eval_checkpoint(
                 logger.info('llm:{} \t {} - {} / {}'.format(llm, idx, t, end_iter, ))
 
 
-                actions = trainer.act(
+                actions, finished = trainer.act(
                     batch,
                     prev_actions,
                     step=t,
@@ -454,6 +455,8 @@ def _eval_checkpoint(
                         prev_actions[i].append(action)
                         if len(prev_actions[i]) > max_length:
                             prev_actions[i].pop(0)
+                for i, finish in enumerate(finished):
+                    finisheds[i].append(finish)
 
                 # Make action and get the new state
                 # actions = [temp[0] for temp in actions.numpy()]
@@ -485,6 +488,7 @@ def _eval_checkpoint(
                     break
 
             for t in range(int(train_env.batch_size)):
+                infos[t]['finished'] = finisheds[t]
                 stats_episodes[str(train_env.batch[t]['episode_id'])] = infos[t]
 
                 EVAL_SAVE_EVERY_RESULTS_DIR = Path(args.project_prefix) / 'DATA/output/{}/eval/intermediate_results_every/{}'.format(args.name, args.make_dir_time)
