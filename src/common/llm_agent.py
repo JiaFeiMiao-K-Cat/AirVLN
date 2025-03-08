@@ -1036,7 +1036,7 @@ You are an advanced multimodal perception system for a drone executing Vision-La
         #         self.history_manager.update_plan(plan)
         #         self.history_manager.update(action, scene, instructions=instruction)
         #         actions.append(action)
-        def check_collision(depth_img, action, img_width=448, img_height=448, drone_width=1.0, drone_height=0.1, fov=90, distance=5.1):
+        def check_collision(depth_img, action, img_width=672, img_height=672, drone_width=1.0, drone_height=0.1, fov=90, distance=5.1):
             # print(depth_img.shape) # (360, 640, 1)
             pixel_angle = fov / img_width
             center_x = img_width // 2
