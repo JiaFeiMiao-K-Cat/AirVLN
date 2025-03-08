@@ -19,6 +19,7 @@ INTERN = "internlm/internlm2.5:7b-chat-1m"
 GEMMA2 = "gemma2:9b-instruct-fp16"
 DEEPSEEKR1_8B = "deepseek-r1:8b-llama-distill-fp16"
 DEEPSEEKR1_32B = "deepseek-r1:32b-qwen-distill-fp16"
+QWQ_32B_LOCAL = "qwq:32b-fp16"
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 chat_log_path = os.path.join(CURRENT_DIR, "chat_log.txt")

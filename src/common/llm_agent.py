@@ -37,7 +37,7 @@ from Model.utils.common import append_text_to_image, images_to_video
 
 from src.common.param import args
 from src.vlnce_src.env import AirVLNLLMENV
-from src.common.llm_wrapper import LLMWrapper, GPT3, GPT4, GPT4O_MINI, LLAMA3, RWKV, QWEN, INTERN, GEMMA2, DEEPSEEKR1_32B, DEEPSEEKR1_8B
+from src.common.llm_wrapper import LLMWrapper, GPT3, GPT4, GPT4O_MINI, LLAMA3, RWKV, QWEN, INTERN, GEMMA2, DEEPSEEKR1_32B, DEEPSEEKR1_8B, QWQ_32B_LOCAL
 from src.common.vlm_wrapper import VLMWrapper, LLAMA3V, image_to_base64
 
 
@@ -49,16 +49,11 @@ The JSON must include the following information:
       - "name": The name of object.
       - "question": A question regarding the object's status or its impact on the navigation task, guiding the expert to concentrate their analysis.
 
-Your output must be strictly in JSON format, without any additional commentary or explanation.
-
-**Note: Action is the action you have executed after the history.**
+Your output must be strictly in JSON codeblock, without any additional commentary or explanation.
 
 ### Input ###
 [History]:
 {history}
-
-[Action]:
-{action}
 
 [Current Instruction]:
 {current_instruction}
@@ -102,20 +97,17 @@ class HistoryManager():
 
 the input for you includes:
 [History]: the history of the previous actions and observations
-[Observation]: The current scene after complete the action
-[Thought]: Why you choose this action
-[Action]: The action you have excuted after the history
-[Keypose]: Which sub-action in the current instruction are you operating
+[Observation]: The scene after taken the actions in history
+[Action]: The action you *PLAN* to do
 
 You should:
-1) consider action, though, and keypose comprehensively, and only pay attention to what has happened
-2) evaluate the new observation and action.
-3) update the history with the new observation and the action.
-4) summarize the updated history in brief. 
+1) evaluate the new observation and history.
+2) update the history with the action and observation.
+3) summarize the updated history in brief. 
 
-Your output must strictly be valid JSON in markdown codeblock without any additional commentary or explanation. 
+Your output must strictly be valid JSON codeblock without any additional commentary or explanation. 
 The JSON must include the following information:
-- "history": the updated history after the new observation and action in brief words.
+- "history": the updated history in brief words.
 
 **Note: The VFOV and the HFOV are 90 degrees. Think carefully about your position relative to objects.**
 
@@ -124,17 +116,11 @@ The JSON must include the following information:
 [History]:
 {history}
 
-[Thought]:
-{thought}
-
 [Observation]:
 {observation}
 
 [Action]:
-{previous_action}
-
-[Keypose]:
-{keypose}"""
+{action}"""
 
         responses_raw = ''
         try: 
@@ -148,7 +134,7 @@ The JSON must include the following information:
             #     # return
             #     prompt = prompt.format(history=self.history, previous_action=None, observation=observation)
             # responses_raw = self.llm.request_with_history(prompt=prompt, model_name=self.model_name, history_id='visual_memory')
-            history = self.get_tuple(2)
+            history = self.get_tuple(1)
             if len(history) == 0:
                 history = {
                     "thought": None,
@@ -156,21 +142,14 @@ The JSON must include the following information:
                     "action": None,
                     "keypose": None
                 }
-            elif len(history) == 1:
-                history = {
-                    "thought": None,
-                    "observation": history[0]['observation'],
-                    "action": None,
-                    "keypose": None
-                }
             else:
                 history = {
                     "thought": history[0]['thought'],
-                    "observation": history[1]['observation'],
+                    "observation": history[0]['observation'],
                     "action": history[0]['action'],
                     "keypose": history[0]['keypose']
                 }
-            prompt = prompt.format(history=self.history, thought=history['thought'], observation=history['observation'], previous_action=history['action'], keypose=history['keypose'])
+            prompt = prompt.format(history=self.history, thought=history['thought'], observation=history['observation'], action=history['action'], keypose=history['keypose'])
             responses_raw = self.llm.request(prompt, model_name=self.model_name)
             responses = re.findall(r"```json(?:\w+)?\n(.*?)```", responses_raw, re.DOTALL | re.IGNORECASE)
             if len(responses) == 0:
@@ -482,13 +461,9 @@ the input for you includes:
 
 [Current Instruction]
 
-[Next Instruction]
-
 [Additional Guidance]: Tips to avoid collisions and infer your relative position with surroundings.
 
 [History]
-
-[Previous Action]: The action you have excuted after the history.
 
 [Observation]: The description of current scene.
 
@@ -498,8 +473,7 @@ Now, based on the above INPUT, plan your next action at this time step.
 
 ******* IMPORTANT ********:
 
-**Valid Actions** (0-5):
-0: TASK_FINISH
+**Valid Actions** (1-7):
 1: MOVE_FORWARD (5 meters)
 2: TURN_LEFT (15 degrees)
 3: TURN_RIGHT (15 degrees)
@@ -516,7 +490,7 @@ Your output should include:
 
 [thought]: tell us why you choose this action, e.g. you can analyze the association between the current scene and the current instruction, consider the whole instruction list and history, etc.
 
-[probabilities]: assign a probability distribution over the valid action list (0-7).
+[probabilities]: assign a probability distribution over the valid action list (1-7).
 
 [selected_action]: Explicitly select the action with highest probability.
 
@@ -533,7 +507,6 @@ A valid output EXAMPLE:
 {{
   "thought": "...",
   "probabilities": {{
-    "0(TASK_FINISH)": 0.0,
     "1(MOVE_FORWARD)": 0.1,
     "2(TURN_LEFT)": 0.0,
     "3(TURN_RIGHT)": 0.1,
@@ -552,10 +525,9 @@ A valid output EXAMPLE:
 [More Constraints]
 
 1. **Probability Rules**:
-    - Output probabilities for **ALL 8 actions** (0-7)
+    - Output probabilities for **ALL 1 actions** (1-7)
     - Higher probability = stronger preference
     - If the additional guidance shows some actions will collide with objects, the probabilities of these actions should be 0.
-    - Only if the Current Instruction is finished and it is the last instruction, can choose the TASK_FINISH action
 2. **Important Note**:
     - When the instruction says **turn right** (or **turn left**) without a specified degree or reference, it means a large turn, usually 90 degrees(about 6 times).
     - When the instruction says **turn around** without a specified degree or reference, it means a large turn, usually 180 degrees(about 12 times).
@@ -570,14 +542,8 @@ A valid output EXAMPLE:
 [Current Instruction]:
 {current_instruction}
 
-[Next Instruction]:
-{next_instruction}
-
 [History]:
 {history}
-
-[Previous Action]:
-{action}
 
 [Observation]:
 {scene_description}
@@ -756,12 +722,11 @@ You are provided with the following inputs:
 [Current Instruction]: The command that is currently being executed.
 [Next Instruction]: The subsequent command that will be executed.
 [History]: Including the history observations, thoughts, actions and keyposes.
-[Previous Action]: The action that was previously executed after the history.
 [Current Scene]: A detailed description of the current scene.
 [Additional Guidance]: Tips to avoid collisions and infer your relative position with surroundings.
 
 To make your judgment, analyze the inputs as follows:
-- Consider the history and previous action to verify if all the keypoint of the current instruction has been completed.
+- Consider the history to verify if all the keypoint of the current instruction has been completed.
 - Consider the current scene description to verify if the expected outcomes of the current instruction or the start of the next instruction are visible.
 - Consider the additional guidance to infer your relative position with surroundings.
 - Use the next instruction as a clue to see if the current instruction has been completed.
@@ -784,9 +749,6 @@ Your output must be strictly in JSON codeblock with no additional commentary or 
 
 [History]:
 {history}
-
-[Previous Action]:
-{action}
 
 [Current Scene]:
 {scene}
@@ -1207,17 +1169,17 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                 attention = ""
                 if check_collision(depth * 100, 1):
                     attention += "MOVE_FORWARD will collide with objects. "
-                else:
-                    attention += "MOVE_FORWARD is safe. "
+                # else:
+                #     attention += "MOVE_FORWARD is safe. "
                 if check_collision(depth * 100, 4, distance=2.2):
                     attention += "GO_UP will collide with objects. "
-                else:
-                    attention += "GO_UP is safe. "
+                # else:
+                #     attention += "GO_UP is safe. "
                 if check_collision(depth * 100, 5, distance=2.2):
                     attention += "GO_DOWN will collide with objects. "
-                else:
-                    attention += "GO_DOWN is safe. "
-                attention += "TURN_LEFT and TURN_RIGHT are safe. "
+                # else:
+                #     attention += "GO_DOWN is safe. "
+                # attention += "TURN_LEFT and TURN_RIGHT are safe. "
                 if step > 0: 
                     judge = self.planner.finished_judge(current_instruction_text, next_instruction_text, scene, guidance=attention, log_dir=log_dir)
                     if judge['instruction_status'] == 'completed':
