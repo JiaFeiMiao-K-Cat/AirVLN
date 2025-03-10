@@ -99,6 +99,7 @@ the input for you includes:
 [History]: the history of the previous actions and observations
 [Observation]: The scene after taken the actions in history
 [Action]: The action you *PLAN* to do
+[Thought]: Why you choose this action
 
 You should:
 1) evaluate the new observation and history.
@@ -120,7 +121,10 @@ The JSON must include the following information:
 {observation}
 
 [Action]:
-{action}"""
+{action}
+
+[Thought]:
+{thought}"""
 
         responses_raw = ''
         try: 
@@ -234,8 +238,8 @@ actions_description = """TASK_FINISH
 MOVE_FORWARD (5 meters)
 TURN_LEFT (15 degrees)
 TURN_RIGHT (15 degrees)
-GO_UP (2 meters)
-GO_DOWN (2 meters)
+ASCENT (2 meters)
+DESCENT (2 meters)
 MOVE_LEFT (5 meters)
 MOVE_RIGHT (5 meters)"""
 
@@ -477,8 +481,8 @@ Now, based on the above INPUT, plan your next action at this time step.
 1: MOVE_FORWARD (5 meters)
 2: TURN_LEFT (15 degrees)
 3: TURN_RIGHT (15 degrees)
-4: GO_UP (2 meters)
-5: GO_DOWN (2 meters)
+4: ASCENT (2 meters)
+5: DESCENT (2 meters)
 6: MOVE_LEFT (5 meters)
 7: MOVE_RIGHT (5 meters)
 
@@ -510,8 +514,8 @@ A valid output EXAMPLE:
     "1(MOVE_FORWARD)": 0.1,
     "2(TURN_LEFT)": 0.0,
     "3(TURN_RIGHT)": 0.1,
-    "4(GO_UP)": 0.8,
-    "5(GO_DOWN)": 0.0,
+    "4(ASCENT)": 0.8,
+    "5(DESCENT)": 0.0,
     "6(MOVE_LEFT)": 0.0,
     "7(MOVE_RIGHT)": 0.0
   }},
@@ -541,6 +545,9 @@ A valid output EXAMPLE:
 
 [Current Instruction]:
 {current_instruction}
+
+[Next Instruction]:
+{next_instruction}
 
 [History]:
 {history}
@@ -1130,9 +1137,9 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                 if check_collision(depth * 100, 1):
                     print('MOVE_FORWARD Collision Dangeroous')
                 if check_collision(depth * 100, 4, distance=2.2):
-                    print('GO_UP Collision Dangeroous')
+                    print('ASCENT Collision Dangeroous')
                 if check_collision(depth * 100, 5, distance=2.2):
-                    print('GO_DOWN Collision Dangeroous')
+                    print('DESCENT Collision Dangeroous')
                 instruction = [None] + instruction.split('. ') + [None]
                 action, finished = map(int, input('Enter action and finished: ').split())
                 finished = finished == 1
@@ -1172,13 +1179,13 @@ You are an advanced multimodal perception system for a drone executing Vision-La
                 # else:
                 #     attention += "MOVE_FORWARD is safe. "
                 if check_collision(depth * 100, 4, distance=2.2):
-                    attention += "GO_UP will collide with objects. "
+                    attention += "ASCENT will collide with objects. "
                 # else:
-                #     attention += "GO_UP is safe. "
+                #     attention += "ASCENT is safe. "
                 if check_collision(depth * 100, 5, distance=2.2):
-                    attention += "GO_DOWN will collide with objects. "
+                    attention += "DESCENT will collide with objects. "
                 # else:
-                #     attention += "GO_DOWN is safe. "
+                #     attention += "DESCENT is safe. "
                 # attention += "TURN_LEFT and TURN_RIGHT are safe. "
                 if step > 0: 
                     judge = self.planner.finished_judge(current_instruction_text, next_instruction_text, scene, guidance=attention, log_dir=log_dir)

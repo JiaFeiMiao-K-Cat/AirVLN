@@ -37,7 +37,7 @@ from src.common.param import args
 from src.vlnce_src.env import AirVLNLLMENV
 from src.common.llm_wrapper import LLMWrapper, GPT3, GPT4, GPT4O, GPT4O_MINI, LLAMA3, RWKV, QWEN, INTERN, GEMMA2, DEEPSEEKR1_32B, DEEPSEEKR1_8B
 from src.common.vlm_wrapper import MINICPM, LLAMA3V, GPT4O_V, INTERN_VL, QWEN_VL_7B, QWEN_VL_72B
-from src.common.llm_agent import Agent
+from src.common.agent import AgentConfig, AgentV2
 
 def generate_video(
     video_option: List[str],
@@ -169,147 +169,6 @@ def initialize_env(split='train'):
     
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-class LLMPlanner():
-    def __init__(self):
-        self.llm = LLMWrapper()
-        self.model_name = DEEPSEEKR1_32B
-
-        # You are a robot pilot and you should follow the user's instructions to generate a plan to fulfill the task or give advice on user's input if it's not clear or not reasonable.
-        self.prompt_plan = """You are a drone operator and you should generate a flight plan based on navigation instructions to complete the task.
-
-Your response should carefully consider the 'actions description', the 'scene description', the 'navigation instructions', and the 'previous actions' if they are provided.
-
-Here is the 'actions description':
-{actions_description}
-
-Here is the 'scene description':
-{scene_description}
-
-Here is the 'navigation instructions':
-{navigation_instructions}
-
-Here is the 'previous actions':
-{prev_actions}
-
-Please generate the response with detailed plans and the next action to execute them, following these steps:
-1. First, summarize the plan in a clear and structured format, including key steps and their purposes.
-2. Provide a detailed explanation of the plan, describing the logic and reasoning behind each step.
-3. Generate the next action required to implement the plan, adhering to the following:
-   - The action should be represented by an integer.
-   - Output the action as a JSON array with a single element and wrap the entire JSON array in a markdown code block.
-   - Do not include any additional text, explanations, or comments outside the markdown code block.
-
-'response':"""
-
-    def set_model(self, model_name):
-        self.model_name = model_name
-
-    def plan(self, task_description: str, scene_description: Optional[str] = None, prev_actions: Optional[str] = None):
-        # by default, the task_description is an action
-        if not task_description.startswith("["):
-            task_description = "[A] " + task_description
-        
-        actions_description = """0: STOP, indicates that the task has been completed.
-1: MOVE_FORWARD, move forward by 5 meters.
-2: TURN_LEFT, turn left by 15 degrees.
-3: TURN_RIGHT, turn right by 15 degrees.
-4: GO_UP, take off / go up by 2 meters.
-5: GO_DOWN, land / go down by 2 meters.
-6: MOVE_LEFT, move left by 5 meters.
-7: MOVE_RIGHT, move right by 5 meters."""
-
-        prompt = self.prompt_plan.format(
-            actions_description=actions_description,
-            scene_description=scene_description,
-            navigation_instructions=task_description,
-            prev_actions=prev_actions)
-        
-        response = self.llm.request(prompt, model_name=self.model_name)
-        code_blocks = re.findall(r"```json(?:\w+)?\n(.*?)```", response, re.DOTALL | re.IGNORECASE)
-        if (code_blocks is None) or (len(code_blocks) == 0):
-            return '[0]'
-        return code_blocks[-1]
-    def extract_landmarks(self, navigation_instructions: str):
-        prompt = f"""You are a drone operator. Based on the following navigation instructions, extract the key landmarks and provide them in a JSON string array format.
-
-Here are the 'navigation instructions':
-{navigation_instructions}
-
-Please follow these steps:
-1. Carefully analyze the navigation instructions to identify key landmarks mentioned.
-2. List each key landmark as a string in the JSON array format.
-3. Output the list of key landmarks as a JSON array, ensuring that the landmarks are enclosed in double quotes.
-
-Example output:
-```json
-["landmark1", "landmark2", "landmark3"]
-```"""
-        response = self.llm.request(prompt, model_name=GPT4O_MINI)
-        landmarks = re.findall(r"```json(?:\w+)?\n(.*?)```", response, re.DOTALL | re.IGNORECASE)
-        return json.loads(landmarks[-1])
-
-class LLMEvaluator():
-    def __init__(self, llm: str, observation_space, action_space, detector: str = 'yolo'):
-        self.observation_space = observation_space
-        self.action_space = action_space
-        self.detector = detector
-
-        self.planner = LLMPlanner()
-        self.planner.set_model(llm)
-
-        self.vision = VisionClient(detector)
-
-        self.landmarks = []
-
-    def eval(self):
-        pass
-
-    def preprocess(self, observations, log_dir=None):
-        instructions = observations['instruction']
-        self.landmarks = []
-        if self.detector == 'dino':
-            for instruction in instructions:
-                self.landmarks.append(self.planner.extract_landmarks(instruction))
-
-    def act(self, observations, prev_actions, step=0):
-        actions = []
-        instructions = observations['instruction']
-        rgbs = observations['rgb']
-        if self.detector == 'yolo':
-            for instruction, rgb, prev_action in zip(instructions, rgbs, prev_actions):
-                # depth = observation['depth'].cpu().numpy()
-
-                self.vision.detect_capture(frame=rgb)
-
-                scene = self.vision.get_obj_list()
-
-                action = self.planner.plan(task_description=instruction, scene_description=scene, prev_actions=prev_action)
-                try: 
-                    action = json.loads(action)
-                    actions.append(int(action[0]))
-                except Exception as e:
-                    logger.error(f"Failed to parse actions: {action}")
-                    actions.append(0)
-        elif self.detector == 'dino': 
-            for instruction, rgb, prev_action, landmark in zip(instructions, rgbs, prev_actions, self.landmarks):
-                # depth = observation['depth'].cpu().numpy()
-
-                self.vision.detect_capture(frame=rgb, prompt=" . ".join(landmark))
-
-                scene = self.vision.get_obj_list()
-
-                action = self.planner.plan(task_description=instruction, scene_description=scene, prev_actions=prev_action)
-                try: 
-                    action = json.loads(action)
-                    actions.append(int(action[0]))
-                except Exception as e:
-                    logger.error(f"Failed to parse actions: {action}")
-                    actions.append(0)
-        else:
-            raise NotImplementedError()
-        print(f'Action: {actions}')
-        return actions
-
 def eval_vlnce():
     logger.info(args)
 
@@ -361,23 +220,24 @@ def _eval_checkpoint(
     if os.path.exists(fname):
         print("skipping -- evaluation exists.")
         return
-    
-    detector = 'vlm'
-    # detector = 'dino'
-    # detector = 'yolo'
-    use_agent = True
 
-
-    if use_agent: 
-        # trainer = Agent(detector=detector, parser=GPT4O_MINI, planner=args.EVAL_LLM, history=GPT4O_MINI, vlm_model=LLAMA3V)
-        trainer = Agent(detector=detector, parser=args.EVAL_LLM, planner=args.EVAL_LLM, history=args.EVAL_LLM, vlm_model=QWEN_VL_7B, manual_mode=False)
-    else:
-        trainer = LLMEvaluator(
-            llm=args.EVAL_LLM,
-            observation_space=train_env.observation_space,
-            action_space=train_env.action_space,
-            detector=detector
-        )
+    agent_config = AgentConfig()
+    agent_config.history['model'] = args.EVAL_LLM
+    agent_config.instruction_splitter['model'] = args.EVAL_LLM
+    agent_config.judger['model'] = args.EVAL_LLM
+    agent_config.parser['model'] = args.EVAL_LLM
+    agent_config.planner['model'] = args.EVAL_LLM
+    agent_config.perception['model'] = args.EVAL_LLM
+    agent_config.perception['vlm_model'] = QWEN_VL_72B
+    agent_config.history['type'] = 'summarize'
+    agent_config.history['include_thought'] = True
+    agent_config.history['include_keypose'] = False
+    agent_config.instruction_splitter['enable'] = False
+    agent_config.perception['collision_estimation'] = False
+    agent_config.judger['use_guidance'] = False
+    agent_config.manual_mode = False
+    agent_config.check()
+    trainer = AgentV2(agent_config)
 
     gc.collect()
 
@@ -400,10 +260,7 @@ def _eval_checkpoint(
             if train_env.batch is None:
                 logger.warning('train_env.batch is None, going to break and stop collect')
                 break
-            if isinstance(trainer, LLMEvaluator):
-                prev_actions = [[] for _ in range(train_env.batch_size)]
-            else:
-                prev_actions = [None for _ in range(train_env.batch_size)]
+            prev_actions = [None for _ in range(train_env.batch_size)]
             finisheds = [[] for _ in range(train_env.batch_size)]
 
             rgb_frames = [[] for _ in range(train_env.batch_size)]
@@ -449,12 +306,6 @@ def _eval_checkpoint(
                     step=t,
                     log_dir=SAVE_IMAGE_LOG_FOLDER
                 )
-                if isinstance(trainer, LLMEvaluator):
-                    max_length = 10
-                    for i, action in enumerate(actions):
-                        prev_actions[i].append(action)
-                        if len(prev_actions[i]) > max_length:
-                            prev_actions[i].pop(0)
                 for i, finish in enumerate(finished):
                     finisheds[i].append(finish)
 
